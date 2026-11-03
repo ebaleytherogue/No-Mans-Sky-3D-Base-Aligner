@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NMS Base — 3D alignment editor</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101820;color:#e6edf5;font:15px system-ui}main{display:grid;grid-template-columns:340px 1fr;height:100vh}aside{padding:22px;overflow:auto;background:#182430}h1{font-size:23px;margin:0 0 14px}p{line-height:1.5;color:#bbcbd9}label{display:block;margin:12px 0}button,select,input{font:inherit;color:inherit;background:#273b4b;border:1px solid #698091;border-radius:5px;padding:8px;max-width:100%}button{cursor:pointer;margin:4px 0}button.primary{background:#245b8b;width:100%}select{width:100%}input[type=number]{width:86px}.row{display:flex;gap:6px;align-items:center}canvas{width:100%;height:100%;display:block;touch-action:none}section{position:relative;min-width:0;min-height:0}.legend{position:absolute;top:12px;left:16px;pointer-events:none;background:#101820dd;padding:10px;border-radius:6px}#status{white-space:pre-line}small{color:#b2c4d3}button:disabled{opacity:.4;cursor:default}@media(max-width:760px){main{grid-template-columns:1fr;height:auto}section{height:65vh}aside{overflow:visible}}
+</style>
+<main><aside><h1>Align your base</h1><p>Use the corrected part to restore the build, then refine its placement. The Base Computer stays fixed.</p>
+<label>Reference part <select id="reference"></select></label>
+<button id="apply" class="primary">Apply reference correction</button>
+<p id="referenceInfo"></p>
+<label>Drag action <select id="mode"><option value="orbit">Orbit camera</option><option value="pan">Pan camera</option><option value="rotate">Rotate base on selected axis</option><option value="move">Move base on selected axis</option></select></label>
+<label>Adjustment axis <select id="axis"><option value="0">X · pitch</option><option value="1">Y · yaw</option><option value="2">Z · roll</option></select></label>
+<small>Drag to adjust. Scroll to zoom. Click a visible original part to select an eligible reference. Right-drag pans.</small>
+<label>Rotation about reference (degrees)</label><div class="row"><label>X <input id="rx" type="number" step="0.1" value="0"></label><label>Y <input id="ry" type="number" step="0.1" value="0"></label><label>Z <input id="rz" type="number" step="0.1" value="0"></label></div>
+<label>Movement in local game units</label><div class="row"><label>X <input id="tx" type="number" step="0.1" value="0"></label><label>Y <input id="ty" type="number" step="0.1" value="0"></label><label>Z <input id="tz" type="number" step="0.1" value="0"></label></div>
+<button id="undo">Undo</button> <button id="reset">Reset to original</button>
+<label><input id="original" type="checkbox" checked> Show original (gray)</label>
+<label><input id="proposed" type="checkbox" checked> Show proposed (blue)</label>
+<div><button id="fit">Fit</button> <button id="top">Top</button> <button id="front">Front</button> <button id="side">Side</button></div>
+<p id="status" role="status"></p><button id="download" class="primary">Download adjusted .nmsbase</button>
+<p><small>Positions and orientation arrows only; no terrain or part meshes. Verify placement in-game using a backed-up save. This file contains your base export data: keep it private.</small></p>
+</aside><section><canvas id="view" aria-label="Rotatable base position overlay"></canvas><div class="legend">● Gray: original · Blue: proposed<br>● Green: reference · Orange: fixed computer<br>Reference axes: X red · Y green · Z blue</div></section></main>
+<script>
+'use strict';
+const DATA=/*BASE_DATA*/null;
+const $=id=>document.getElementById(id), clone=x=>JSON.parse(JSON.stringify(x));
+const add=(a,b)=>a.map((v,i)=>v+b[i]), sub=(a,b)=>a.map((v,i)=>v-b[i]);
+const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0), cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const unit=a=>{const n=Math.hypot(...a);if(n<1e-9)throw Error('Degenerate orientation');return a.map(v=>v/n)};
+const mv=(m,v)=>m.map(row=>dot(row,v));
+const frame=o=>{const u=unit(o.Up),r=unit(cross(u,unit(o.At)));return [r,u,unit(cross(r,u))]};
+const rotation=(a,b)=>{const x=frame(a),y=frame(b);return [0,1,2].map(i=>[0,1,2].map(j=>x.reduce((s,v,k)=>s+y[k][i]*v[j],0)))};
+const FLAG='^BASE_FLAG', fields=['rx','ry','rz','tx','ty','tz'];
+let baseline, pivot, selected=0, applied=false, history=[], lastValues=[0,0,0,0,0,0], points=[], camera={yaw:.65,pitch:.45,zoom:1,pan:[0,0],center:[0,0,0]}, span=10;
+const canvas=$('view'),ctx=canvas.getContext('2d');
+function pair(){return DATA.pairs[selected]}
+function choose(){const [i,j]=pair();$('reference').value=String(selected);$('referenceInfo').textContent=`${DATA.before.Objects[i].ObjectID} · before #${i}, after #${j}. Green arrows show its proposed orientation.`}
+function values(){return fields.map(id=>Number($(id).value))}
+function setValues(v){fields.forEach((id,i)=>$(id).value=v[i])}
+function snapshot(){return {selected,applied,values:values()}}
+function remember(){history.push(snapshot());if(history.length>100)history.shift()}
+function makeBaseline(){baseline=clone(DATA.after);const [i,j]=pair(),a=DATA.before.Objects[i],b=DATA.after.Objects[j];if(applied){const r=rotation(a,b),t=sub(b.Position,mv(r,a.Position));baseline.Objects.forEach((o,k)=>{if(o.ObjectID===FLAG||k===j)return;o.Position=add(mv(r,o.Position),t);o.Up=mv(r,o.Up);o.At=mv(r,o.At)})}else{baseline=clone(DATA.after);baseline.Objects=clone(DATA.before.Objects)}pivot=[...(applied?b:a).Position];choose()}
+function euler(v,r){let [x,y,z]=v;let [a,b,c]=r.map(d=>d*Math.PI/180);[y,z]=[y*Math.cos(a)-z*Math.sin(a),y*Math.sin(a)+z*Math.cos(a)];[x,z]=[x*Math.cos(b)+z*Math.sin(b),-x*Math.sin(b)+z*Math.cos(b)];return [x*Math.cos(c)-y*Math.sin(c),x*Math.sin(c)+y*Math.cos(c),z]}
+function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);output.Objects.forEach(o=>{if(o.ObjectID===FLAG)return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return output}
+function project(p){let [x,y,z]=sub(p,camera.center);const c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);[x,z]=[x*c-z*s,x*s+z*c];const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);[y,z]=[y*cp-z*sp,y*sp+z*cp];return [canvas.clientWidth/2+x*camera.zoom+camera.pan[0],canvas.clientHeight/2-y*camera.zoom+camera.pan[1],z]}
+function fit(){const all=DATA.before.Objects.map(o=>o.Position);const lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));camera.center=add(lo,hi).map(v=>v/2);span=Math.max(2,Math.hypot(...sub(hi,lo)));camera.zoom=Math.min(canvas.clientWidth,canvas.clientHeight)*.7/span;camera.pan=[0,0];draw()}
+function line(a,b,color,width=1){a=project(a);b=project(b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a.slice(0,2));ctx.lineTo(...b.slice(0,2));ctx.stroke()}
+function draw(){try{const out=result(),w=canvas.clientWidth,h=canvas.clientHeight,dpr=window.devicePixelRatio||1;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);points=[];const [refOld,refNew]=pair();
+function layer(objects,original){objects.map((o,i)=>({o,i,p:project(o.Position)})).sort((a,b)=>a.p[2]-b.p[2]).forEach(({o,i,p})=>{const fixed=o.ObjectID===FLAG,ref=i===(original?refOld:(applied?refNew:refOld));ctx.fillStyle=fixed?'#ffb454':ref?'#64e6a3':original?'#8a97a780':'#55b5ff';ctx.beginPath();ctx.arc(p[0],p[1],fixed||ref?6:3,0,Math.PI*2);ctx.fill();if(original)points.push({i,x:p[0],y:p[1]})})}
+if($('original').checked)layer(DATA.before.Objects,true);if($('proposed').checked){layer(out.Objects,false);const o=out.Objects[applied?refNew:refOld],f=frame(o),n=span*.09;f.forEach((v,i)=>line(o.Position,add(o.Position,v.map(x=>x*n)),['#ff7777','#64e6a3','#55b5ff'][i],3))}
+// Local-axis adjustment handles at the selected pivot.
+const p=add(pivot,values().slice(3));if($('mode').value==='move'||$('mode').value==='rotate'){[0,1,2].forEach(i=>{let v=[0,0,0];v[i]=span*.15;line(p,add(p,v),['#ff7777','#64e6a3','#55b5ff'][i],Number($('axis').value)===i?4:1)})}
+const originals=applied?DATA.after.Objects:DATA.before.Objects;let max=0;out.Objects.forEach((o,i)=>{if(o.ObjectID===FLAG)return;const source=applied&&i===refNew?DATA.before.Objects[refOld]:originals[i];max=Math.max(max,Math.hypot(...sub(o.Position,source.Position)))});const measured=rotation(DATA.before.Objects[refOld],DATA.after.Objects[refNew]);const angle=Math.acos(Math.max(-1,Math.min(1,(measured[0][0]+measured[1][1]+measured[2][2]-1)/2)))*180/Math.PI;$('status').textContent=`${applied?'Reference correction applied':'Original placement · manual editing'}\nMeasured reference rotation: ${angle.toFixed(3)}°\n${out.Objects.length} parts · largest movement ${max.toFixed(3)} units\nBase Computer unchanged. Rotation order: X, then Y, then Z.`;lastValues=values();$('download').disabled=false;$('undo').disabled=!history.length;
+}catch(e){$('status').textContent=e.message;$('download').disabled=true}}
+function select(index){remember();selected=index;applied=false;setValues([0,0,0,0,0,0]);makeBaseline();draw()}
+if(!DATA){$('status').textContent='Generate an editor using nms_base_align_3d.py with your two exports.';$('download').disabled=true;throw Error('No base data embedded')}
+DATA.pairs.forEach(([i,j],n)=>{const opt=document.createElement('option');opt.value=n;opt.textContent=`${DATA.before.Objects[i].ObjectID} · #${i} → #${j}`;$('reference').append(opt)});
+$('reference').onchange=()=>select(Number($('reference').value));
+$('apply').onclick=()=>{remember();applied=true;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
+fields.forEach(id=>{$(id).oninput=()=>{history.push({...snapshot(),values:[...lastValues]});if(history.length>100)history.shift();draw()}});
+$('undo').onclick=()=>{const s=history.pop();if(!s)return;selected=s.selected;applied=s.applied;setValues(s.values);makeBaseline();draw()};
+$('reset').onclick=()=>{remember();applied=false;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
+['original','proposed','mode','axis'].forEach(id=>$(id).onchange=draw);
+$('fit').onclick=fit;['top','front','side'].forEach((id,i)=>$(id).onclick=()=>{camera.yaw=[0,0,Math.PI/2][i];camera.pitch=[Math.PI/2,0,0][i];draw()});
+let drag=null;canvas.oncontextmenu=e=>e.preventDefault();canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);const mode=e.button===2?'pan':$('mode').value;drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,mode,v:values()};if(mode==='rotate'||mode==='move')remember()};
+canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(drag.mode==='orbit'){camera.yaw+=dx*.008;camera.pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,camera.pitch+dy*.008))}else if(drag.mode==='pan'){camera.pan[0]+=dx;camera.pan[1]+=dy}else{const v=[...drag.v],k=Number($('axis').value)+(drag.mode==='move'?3:0);v[k]+=(e.clientX-drag.startX-e.clientY+drag.startY)*(drag.mode==='move'?1/camera.zoom:.3);setValues(v)}draw()};
+canvas.onpointerup=e=>{if(!drag)return;if(drag.mode==='orbit'&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const hits=points.map(p=>({...p,d:Math.hypot(x-p.x,y-p.y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d);const hit=hits.find(p=>DATA.pairs.some(pair=>pair[0]===p.i));if(hit)select(DATA.pairs.findIndex(pair=>pair[0]===hit.i))}drag=null};canvas.onpointercancel=()=>drag=null;
+canvas.onwheel=e=>{e.preventDefault();camera.zoom=Math.max(.0001,Math.min(1e6,camera.zoom*Math.exp(-e.deltaY*.001)));draw()};
+$('download').onclick=()=>{try{const out=result();if(out.Objects.some(o=>['Position','Up','At'].some(k=>!o[k].every(Number.isFinite))))throw Error('Adjustment is too large. Enter smaller values.');const blob=new Blob([JSON.stringify(out,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Adjusted Base.nmsbase';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('status').textContent=e.message}};
+window.addEventListener('resize',draw);makeBaseline();fit();
+</script></html>

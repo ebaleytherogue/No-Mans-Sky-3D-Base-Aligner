@@ -1,0 +1,6 @@
+# Private base exports and generated local previews
+*.nmsbase
+*.pyc
+Preview*.html
+preview*.html
+__pycache__/

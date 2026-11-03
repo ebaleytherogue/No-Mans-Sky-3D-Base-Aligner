@@ -1,0 +1,98 @@
+import copy
+import json
+import math
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+import nms_base_align_3d as a
+
+
+def part(id, p):
+    return dict(ObjectID=id, Position=p, Up=[0, 2, 0], At=[0, 0, 3], UserData={'keep': 42})
+
+
+def fixture():
+    return dict(Owner={'UID': 'synthetic-test'}, GalacticAddress='test', Position=[1,2,3], Forward=[0,0,1],
+                Objects=[part(a.FLAG,[0,0,0]),part('^FLOOR',[2,3,4]),part('^FLOOR',[8,9,10]),part('^OTHER',[-2,0,4])])
+
+
+class AlignmentTests(unittest.TestCase):
+    def assertVector(self, x, y):
+        for v,w in zip(x,y): self.assertAlmostEqual(v,w,places=7)
+
+    def corrected(self):
+        before=fixture(); after=copy.deepcopy(before)
+        # Combined rotations, including a vertical inversion component.
+        rx,ry,rz=map(math.radians,[37,-53,121])
+        def rotate(v):
+            x,y,z=v
+            y,z=y*math.cos(rx)-z*math.sin(rx),y*math.sin(rx)+z*math.cos(rx)
+            x,z=x*math.cos(ry)+z*math.sin(ry),-x*math.sin(ry)+z*math.cos(ry)
+            return [x*math.cos(rz)-y*math.sin(rz),x*math.sin(rz)+y*math.cos(rz),z]
+        ref=after['Objects'][1]
+        ref['Position']=[x+d for x,d in zip(rotate(ref['Position']),[5,-7,11])]
+        for k in ('Up','At'): ref[k]=rotate(ref[k])
+        return before,after,rotate
+
+    def test_combined_rotation_reordered_duplicate_reference(self):
+        before,after,rotate=self.corrected()
+        after['Objects'].reverse()
+        pairs=a.reference_pairs(before,after)
+        self.assertEqual(pairs,[(1,2)])
+        out=a.align(before,after,pairs[0])
+        self.assertEqual(out['Objects'][2],after['Objects'][2])
+        self.assertEqual(a.flag(out),a.flag(before))
+        for original, result in zip(before['Objects'],reversed(out['Objects'])):
+            if original['ObjectID']==a.FLAG: continue
+            self.assertVector(result['Position'],[x+d for x,d in zip(rotate(original['Position']),[5,-7,11])])
+            for k in ('Up','At'): self.assertVector(result[k],rotate(original[k]))
+            self.assertEqual(result['UserData'],original['UserData'])
+        self.assertEqual(out['Owner'],after['Owner'])
+
+    def test_orientation_only_and_translation_only(self):
+        for orientation in (True,False):
+            b=fixture(); c=copy.deepcopy(b)
+            if orientation: c['Objects'][1]['At']=[3,0,0]
+            else: c['Objects'][1]['Position']=[99,3,4]
+            self.assertEqual(a.reference_pairs(b,c),[(1,1)])
+
+    def test_reject_unrelated_changes_and_computer(self):
+        b,c,_=self.corrected(); c['Objects'][2]['Position'][0]+=1
+        with self.assertRaises(a.AlignmentError): a.reference_pairs(b,c)
+        with self.assertRaises(a.AlignmentError): a.reference_pairs(b,c,'1:1')
+        b=fixture(); c=copy.deepcopy(b); c['Objects'][0]['Up']=[1,0,0]
+        with self.assertRaises(a.AlignmentError): a.reference_pairs(b,c)
+
+    def test_reject_identity_scale_and_degenerate(self):
+        for change in ('owner','scale','zero','parallel','removed'):
+            b=fixture(); c=copy.deepcopy(b)
+            if change=='owner': c['Owner']['UID']='different'
+            if change=='scale': c['Objects'][1]['Up']=[0,4,0]
+            if change=='zero': c['Objects'][1]['Up']=[0,0,0]
+            if change=='parallel': c['Objects'][1]['At']=[0,3,0]
+            if change=='removed': c['Objects'].pop()
+            with self.assertRaises(a.AlignmentError): a.reference_pairs(b,c,'1:1')
+
+    def test_manual_mode_and_selectors(self):
+        b=fixture()
+        self.assertEqual(len(a.reference_pairs(b,b)),3)
+        self.assertEqual(a.reference_pairs(b,b,'^OTHER'),[(3,3)])
+        for selector in ('^FLOOR','-1:0','999:0','0:0'):
+            with self.assertRaises(a.AlignmentError): a.reference_pairs(b,b,selector)
+
+    def test_html_generation_and_protected_inputs(self):
+        b,c,_=self.corrected(); b['Name']=c['Name']='</script><script>alert(1)</script>'
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); old=root/'before.nmsbase'; new=root/'after.nmsbase'; out=root/'preview.html'
+            old.write_text(json.dumps(b));new.write_text(json.dumps(c))
+            with patch('sys.argv',['tool',str(old),str(new),'-o',str(out)]): a.main()
+            html=out.read_text(encoding='utf-8')
+            self.assertNotIn('</script><script>alert',html)
+            self.assertNotIn('/*BASE_DATA*/null',html)
+            with patch('sys.argv',['tool',str(old),str(new),'-o',str(out)]):
+                with self.assertRaises(SystemExit): a.main()
+            self.assertEqual(json.loads(old.read_text()),b)
+
+
+if __name__=='__main__': unittest.main()
