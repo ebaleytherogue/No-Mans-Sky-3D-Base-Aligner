@@ -1,4 +1,6 @@
 import copy
+import contextlib
+import io
 import json
 import math
 from pathlib import Path
@@ -93,6 +95,63 @@ class AlignmentTests(unittest.TestCase):
             with patch('sys.argv',['tool',str(old),str(new),'-o',str(out)]):
                 with self.assertRaises(SystemExit): a.main()
             self.assertEqual(json.loads(old.read_text()),b)
+
+    def test_tolerance_metadata_and_reordered_detection(self):
+        b = fixture(); c = copy.deepcopy(b)
+        c['Objects'][2]['UserData'] = {'color': 'new'}
+        c['Objects'][2]['Position'][0] += 5e-7
+        self.assertEqual(len(a.reference_pairs(b, c)), 3)
+        c['Objects'][1]['Position'][1] += 4
+        c['Objects'].reverse()
+        self.assertEqual(a.reference_pairs(b, c), [(1, 2)])
+
+    def test_axis_masks_without_rotation(self):
+        b, c, _ = self.corrected()
+        delta = [y-x for x, y in zip(b['Objects'][1]['Position'], c['Objects'][1]['Position'])]
+        for mask in range(8):
+            axes = [bool(mask & (1 << k)) for k in range(3)]
+            out = a.align(b, c, (1, 1), axes, False)
+            self.assertEqual(out['Objects'][0], b['Objects'][0])
+            self.assertEqual(out['Objects'][1], c['Objects'][1])
+            for i in (2, 3):
+                self.assertVector(out['Objects'][i]['Position'],
+                                  [v+(delta[k] if axes[k] else 0) for k, v in enumerate(b['Objects'][i]['Position'])])
+                self.assertEqual(out['Objects'][i]['Up'], b['Objects'][i]['Up'])
+                self.assertEqual(out['Objects'][i]['At'], b['Objects'][i]['At'])
+
+    def test_identity_preserves_exact_values(self):
+        b = fixture()
+        b['Objects'][1]['Up'] = [0.001, 2, 0]
+        b['Objects'][1]['At'] = [0, 0, 3]
+        self.assertEqual(a.align(b, b, (1, 1)), b)
+
+    def test_single_file_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'base.nmsbase'; output = Path(tmp) / 'manual.html'
+            source.write_text(json.dumps(fixture()))
+            with patch('sys.argv', ['tool', str(source), '-o', str(output)]):
+                a.main()
+            html = output.read_text(encoding='utf-8')
+            self.assertIn('"after": null', html)
+            self.assertIn('id="afterFile"', html)
+            with patch('sys.argv', ['tool', str(source), '-o', str(source)]):
+                with self.assertRaises(SystemExit): a.main()
+
+    def test_missing_editor_template_explains_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'base.nmsbase'
+            output = root / 'Preview.html'
+            source.write_text(json.dumps(fixture()))
+            error = io.StringIO()
+            with patch.object(a, '__file__', str(root / 'nms_base_align_3d.py')):
+                with patch('sys.argv', ['tool', str(source), str(source), '-o', str(output)]):
+                    with contextlib.redirect_stderr(error):
+                        with self.assertRaises(SystemExit) as caught:
+                            a.main()
+            self.assertEqual(caught.exception.code, 2)
+            self.assertIn('Restore nms_base_editor.html', error.getvalue())
+            self.assertFalse(output.exists())
 
 
 if __name__=='__main__': unittest.main()

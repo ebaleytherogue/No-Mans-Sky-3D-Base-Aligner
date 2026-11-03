@@ -43,10 +43,6 @@ def mv(matrix, vector):
     return [dot(row, vector) for row in matrix]
 
 
-def token(obj):
-    return json.dumps(obj, sort_keys=True, separators=(',', ':'))
-
-
 def validate(before, after):
     for key in ('GalacticAddress', 'Position', 'Forward', 'Owner'):
         if before.get(key) != after.get(key):
@@ -57,11 +53,25 @@ def validate(before, after):
         raise AlignmentError('Parts were added or deleted. Move and rotate one existing part only.')
 
 
+def geometry_equal(a, b):
+    return a['ObjectID'] == b['ObjectID'] and all(
+        abs(x-y) <= 1e-6 for key in ('Position', 'Up', 'At')
+        for x, y in zip(a[key], b[key]))
+
+
 def reference_pairs(before, after, selector=None):
     validate(before, after)
     old, new = before['Objects'], after['Objects']
-    ca, cb = Counter(map(token, old)), Counter(map(token, new))
-    removed, added = ca-cb, cb-ca
+    remaining = set(range(len(new)))
+    matches = {}
+    for i, obj in enumerate(old):
+        options = [j for j in sorted(remaining) if geometry_equal(obj, new[j])]
+        if options:
+            j = options[0]
+            matches[i] = j
+            remaining.remove(j)
+    unmatched = [i for i in range(len(old)) if i not in matches]
+    changed = bool(unmatched)
     if selector:
         if ':' in selector:
             try:
@@ -78,16 +88,10 @@ def reference_pairs(before, after, selector=None):
                 raise AlignmentError('Reference ID is not unique; use before:after indices.')
             i, j = aa[0], bb[0]
         candidates = [(i, j)]
-    elif sum(removed.values()) == sum(added.values()) == 1:
-        candidates = [(next(i for i, o in enumerate(old) if token(o) in removed),
-                       next(j for j, o in enumerate(new) if token(o) in added))]
-    elif not removed and not added:
-        # An unchanged export can still be used as the starting point for manual edits.
-        locations = {}
-        for j, o in enumerate(new):
-            locations.setdefault(token(o), []).append(j)
-        candidates = [(i, locations[token(o)][0]) for i, o in enumerate(old)
-                      if len(locations[token(o)]) == 1 and o['ObjectID'] != FLAG]
+    elif len(unmatched) == len(remaining) == 1:
+        candidates = [(unmatched[0], next(iter(remaining)))]
+    elif not changed:
+        candidates = [(i, j) for i, j in matches.items() if old[i]['ObjectID'] != FLAG]
     else:
         raise AlignmentError('More than one part changed. Export again after adjusting only the reference part.')
     valid = []
@@ -97,12 +101,14 @@ def reference_pairs(before, after, selector=None):
             if selector:
                 raise AlignmentError('Reference must identify the same non-computer part in both exports.')
             continue
-        if ca-Counter([token(a)]) != cb-Counter([token(b)]):
+        if not changed and not geometry_equal(a, b):
+            raise AlignmentError('Reference indices do not match the same unchanged part.')
+        if changed and (unmatched != [i] or remaining != {j}):
             raise AlignmentError('Other parts changed besides the selected reference.')
         try:
             rotation(a, b)
         except AlignmentError:
-            if selector or removed:
+            if selector or changed:
                 raise
             continue
         valid.append((i, j))
@@ -111,41 +117,56 @@ def reference_pairs(before, after, selector=None):
     return valid
 
 
-def align(before, after, pair):
+def align(before, after, pair, axes=(True, True, True), apply_rotation=True):
     i, j = pair
     a, b = before['Objects'][i], after['Objects'][j]
-    r = rotation(a, b)
-    pivot = mv(r, a['Position'])
-    shift = [y-x for x, y in zip(pivot, b['Position'])]
+    same_orientation = all(abs(x-y) <= 1e-6 for key in ('Up', 'At')
+                           for x, y in zip(a[key], b[key]))
+    r = rotation(a, b) if apply_rotation and not same_orientation else None
+    shift = [(y-x) if enabled else 0 for x, y, enabled in zip(a['Position'], b['Position'], axes)]
     result = copy.deepcopy(after)
     for index, obj in enumerate(result['Objects']):
         if obj['ObjectID'] == FLAG or index == j:
             continue
-        obj['Position'] = [x+y for x, y in zip(mv(r, obj['Position']), shift)]
-        for field in ('Up', 'At'):
-            obj[field] = mv(r, obj[field])
+        if r:
+            offset = [x-y for x, y in zip(obj['Position'], a['Position'])]
+            obj['Position'] = [x+y for x, y in zip(mv(r, offset), a['Position'])]
+            for field in ('Up', 'At'):
+                obj[field] = mv(r, obj[field])
+        if any(shift):
+            obj['Position'] = [x+y for x, y in zip(obj['Position'], shift)]
     return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('before', type=Path)
-    parser.add_argument('after', type=Path)
+    parser.add_argument('after', type=Path, nargs='?', help='optional corrected export; omit for manual editing')
     parser.add_argument('-o', '--output', type=Path, required=True, help='new offline .html editor')
     parser.add_argument('--reference', help='unique ^ObjectID or zero-based before:after indices')
     parser.add_argument('--overwrite', action='store_true')
     args = parser.parse_args()
     try:
-        before, after = read_base(args.before), read_base(args.after)
+        before = read_base(args.before)
+        after = read_base(args.after) if args.after else copy.deepcopy(before)
         pairs = reference_pairs(before, after, args.reference)
         if args.output.suffix.lower() != '.html':
             raise AlignmentError('Editor output must have an .html extension.')
-        if args.output.resolve() in (args.before.resolve(), args.after.resolve()):
+        if args.output.resolve() in (p.resolve() for p in (args.before, args.after) if p):
             raise AlignmentError('Output must not replace an input.')
         if args.output.exists() and not args.overwrite:
             raise AlignmentError('Output exists; choose another name or use --overwrite.')
-        payload = json.dumps({'before': before, 'after': after, 'pairs': pairs}, allow_nan=False).replace('<', '\\u003c').replace('&', '\\u0026')
-        template = Path(__file__).with_name('nms_base_editor.html').read_text(encoding='utf-8')
+        payload = json.dumps({'before': before, 'after': after if args.after else None, 'pairs': pairs}, allow_nan=False).replace('<', '\\u003c').replace('&', '\\u0026')
+        template_path = Path(__file__).with_name('nms_base_editor.html')
+        try:
+            template = template_path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            raise AlignmentError(
+                f'Missing browser editor template: {template_path}. '
+                'Restore nms_base_editor.html from the original download beside '
+                'nms_base_align.py and nms_base_align_3d.py, then rerun this command. '
+                'Keep this template for future runs; use a different name for the generated viewer.'
+            ) from None
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(template.replace('/*BASE_DATA*/null', payload), encoding='utf-8')
         print(f'Created {args.output}. Open it in your browser; select the reference, refine, then download the adjusted base.')

@@ -102,6 +102,7 @@ With a calibration pair, only the changed part is eligible: the app will not sil
 
 For manual adjustment without in-game calibration, supply the same export twice:
 
+[The need for stating the same file twice is due to the command line interface. It was easier to implement this, by using the repeat filename, rather than re-writing more bits of code. - the author]
 ```text
 py nms_base_align.py 3d "Before.nmsbase" "Before.nmsbase" -o "Preview.html"
 ```

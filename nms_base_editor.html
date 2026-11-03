@@ -4,9 +4,14 @@
 <style>
 *{box-sizing:border-box}body{margin:0;background:#101820;color:#e6edf5;font:15px system-ui}main{display:grid;grid-template-columns:340px 1fr;height:100vh}aside{padding:22px;overflow:auto;background:#182430}h1{font-size:23px;margin:0 0 14px}p{line-height:1.5;color:#bbcbd9}label{display:block;margin:12px 0}button,select,input{font:inherit;color:inherit;background:#273b4b;border:1px solid #698091;border-radius:5px;padding:8px;max-width:100%}button{cursor:pointer;margin:4px 0}button.primary{background:#245b8b;width:100%}select{width:100%}input[type=number]{width:86px}.row{display:flex;gap:6px;align-items:center}canvas{width:100%;height:100%;display:block;touch-action:none}section{position:relative;min-width:0;min-height:0}.legend{position:absolute;top:12px;left:16px;pointer-events:none;background:#101820dd;padding:10px;border-radius:6px}#status{white-space:pre-line}small{color:#b2c4d3}button:disabled{opacity:.4;cursor:default}@media(max-width:760px){main{grid-template-columns:1fr;height:auto}section{height:65vh}aside{overflow:visible}}
 </style>
-<main><aside><h1>Align your base</h1><p>Use the corrected part to restore the build, then refine its placement. The Base Computer stays fixed.</p>
-<label>Reference part <select id="reference"></select></label>
-<button id="apply" class="primary">Apply reference correction</button>
+<main><aside><h1>Align your base</h1><p>Adjust one export manually, or add an After export to follow a corrected part. The Base Computer stays fixed.</p>
+<label>Add After file <input id="afterFile" type="file" accept=".nmsbase,.json"></label>
+<p id="calibrationInfo" role="status"></p>
+<fieldset><legend>Apply measured movement</legend><div class="row"><label><input id="mx" type="checkbox" checked> X</label><label><input id="my" type="checkbox" checked> Y</label><label><input id="mz" type="checkbox" checked> Z</label></div>
+<label><input id="measuredRotation" type="checkbox" checked> Apply measured rotation</label>
+<small>Rotate around the Before reference position, then add the selected movement components. With rotation enabled, coordinates on unchecked axes can still change through rotation.</small></fieldset>
+<label>Manual rotation pivot <select id="reference"></select></label>
+<button id="apply" class="primary">Align rest of base to corrected reference</button>
 <p id="referenceInfo"></p>
 <label>Drag action <select id="mode"><option value="orbit">Orbit camera</option><option value="pan">Pan camera</option><option value="rotate">Rotate base on selected axis</option><option value="move">Move base on selected axis</option></select></label>
 <label>Adjustment axis <select id="axis"><option value="0">X · pitch</option><option value="1">Y · yaw</option><option value="2">Z · roll</option></select></label>
@@ -33,15 +38,73 @@ const rotation=(a,b)=>{const x=frame(a),y=frame(b);return [0,1,2].map(i=>[0,1,2]
 const FLAG='^BASE_FLAG', fields=['rx','ry','rz','tx','ty','tz'];
 let baseline, pivot, selected=0, applied=false, history=[], lastValues=[0,0,0,0,0,0], points=[], camera={yaw:.65,pitch:.45,zoom:1,pan:[0,0],center:[0,0,0]}, span=10;
 const canvas=$('view'),ctx=canvas.getContext('2d');
+const EPS=1e-6, geometry=['Position','Up','At'];
+let detection, calibrationIndex=null, appliedOptions=null;
+const near=(a,b)=>a.length===b.length&&a.every((v,i)=>Math.abs(v-b[i])<=EPS);
+const sameGeometry=(a,b)=>a.ObjectID===b.ObjectID&&geometry.every(k=>near(a[k],b[k]));
+function canonical(x){if(Array.isArray(x))return x.map(canonical);if(x&&typeof x==='object')return Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])]));return x}
+const stable=x=>JSON.stringify(canonical(x));
+function nonGeometry(o){return Object.fromEntries(Object.entries(o).filter(([k])=>!geometry.includes(k)))}
+function validateBase(base){
+ if(!base||!Array.isArray(base.Objects)||base.Objects.filter(o=>o.ObjectID===FLAG).length!==1)throw Error('Choose an NMSE base export with exactly one Base Computer.');
+ base.Objects.forEach(o=>{if(typeof o.ObjectID!=='string'||geometry.some(k=>!Array.isArray(o[k])||o[k].length!==3||!o[k].every(Number.isFinite)))throw Error('Invalid object geometry in base file.')});
+}
+function analyze(before,after){
+ validateBase(before);if(!after)return {message:'Manual editing. Load Before and After exports to align using a corrected reference.',map:before.Objects.map((_,i)=>i),reference:null};
+ validateBase(after);
+ for(const k of ['GalacticAddress','Position','Forward','Owner'])if(stable(before[k])!==stable(after[k]))throw Error('Base identity changed: '+k);
+ const flagA=before.Objects.find(o=>o.ObjectID===FLAG),flagB=after.Objects.find(o=>o.ObjectID===FLAG);
+ if(!sameGeometry(flagA,flagB)||stable(nonGeometry(flagA))!==stable(nonGeometry(flagB)))throw Error('The Base Computer changed. Leave it untouched.');
+ const ids=b=>b.Objects.map(o=>o.ObjectID).sort();if(JSON.stringify(ids(before))!==JSON.stringify(ids(after)))throw Error('Parts were added or deleted. Move one existing part only.');
+ const left=new Set(after.Objects.map((_,i)=>i)),map=before.Objects.map(()=>null);
+ before.Objects.forEach((a,i)=>{const j=[...left].find(j=>sameGeometry(a,after.Objects[j]));if(j!==undefined){map[i]=j;left.delete(j)}});
+ const changed=map.map((j,i)=>j===null?i:null).filter(i=>i!==null);
+ if(changed.length>1)throw Error('Multiple parts have meaningful geometric changes; the corrected reference is ambiguous. Adjust only one part.');
+ let reference=null;if(changed.length===1){const i=changed[0],j=[...left][0];if(before.Objects[i].ObjectID!==after.Objects[j].ObjectID)throw Error('Cannot match the corrected reference.');
+ const a=before.Objects[i],b=after.Objects[j];for(const k of ['Up','At'])if(Math.abs(dot(a[k],a[k])-dot(b[k],b[k]))>Math.max(1e-8,1e-5*dot(a[k],a[k])))throw Error('Reference scale changed. Move and rotate without resizing.');
+ for(const o of [a,b]){if(Math.abs(dot(unit(o.Up),unit(o.At)))>1e-4)throw Error('Reference Up and At must be perpendicular.');frame(o)}
+ map[i]=j;reference=i;}
+ const other=map.reduce((n,j,i)=>n+(stable(nonGeometry(before.Objects[i]))!==stable(nonGeometry(after.Objects[j]))?1:0),0);
+ return {map,reference,message:(reference===null?'No meaningful reference change. Manual editing available.':'Detected corrected reference: '+before.Objects[reference].ObjectID+' · #'+reference)+(other?' Unrelated properties changed on '+other+' part(s); After properties will be retained.':'')};
+}
 function pair(){return DATA.pairs[selected]}
-function choose(){const [i,j]=pair();$('reference').value=String(selected);$('referenceInfo').textContent=`${DATA.before.Objects[i].ObjectID} · before #${i}, after #${j}. Green arrows show its proposed orientation.`}
+function choose(){const [i]=pair();$('reference').value=String(selected);$('referenceInfo').textContent='Manual pivot: '+DATA.before.Objects[i].ObjectID+' · #'+i+'. Changing the pivot preserves the proposed layout.';updateControls()}
+function updateControls(){
+ $('calibrationInfo').textContent=detection.message;
+ $('apply').disabled=calibrationIndex===null;
+ $('apply').title=calibrationIndex===null?detection.message:'Apply the selected measured correction; manual adjustments are preserved.';
+ for(const id of ['mx','my','mz','measuredRotation'])$(id).disabled=calibrationIndex===null;
+}
 function values(){return fields.map(id=>Number($(id).value))}
 function setValues(v){fields.forEach((id,i)=>$(id).value=v[i])}
-function snapshot(){return {selected,applied,values:values()}}
+function options(){return {axes:['mx','my','mz'].map(id=>$(id).checked),rotate:$('measuredRotation').checked}}
+function setOptions(o){['mx','my','mz'].forEach((id,i)=>$(id).checked=o.axes[i]);$('measuredRotation').checked=o.rotate}
+function snapshot(){return {selected,applied,values:values(),baseline:clone(baseline),pivot:[...pivot],data:clone(DATA),detection:clone(detection),calibrationIndex,appliedOptions:clone(appliedOptions),options:options()}}
 function remember(){history.push(snapshot());if(history.length>100)history.shift()}
-function makeBaseline(){baseline=clone(DATA.after);const [i,j]=pair(),a=DATA.before.Objects[i],b=DATA.after.Objects[j];if(applied){const r=rotation(a,b),t=sub(b.Position,mv(r,a.Position));baseline.Objects.forEach((o,k)=>{if(o.ObjectID===FLAG||k===j)return;o.Position=add(mv(r,o.Position),t);o.Up=mv(r,o.Up);o.At=mv(r,o.At)})}else{baseline=clone(DATA.after);baseline.Objects=clone(DATA.before.Objects)}pivot=[...(applied?b:a).Position];choose()}
+function populate(){
+ $('reference').replaceChildren();DATA.pairs.forEach(([i],n)=>{const opt=document.createElement('option');opt.value=n;opt.textContent=DATA.before.Objects[i].ObjectID+' · #'+i;$('reference').append(opt)});
+}
+function rawBaseline(){
+ const base=clone(DATA.after||DATA.before);
+ base.Objects=DATA.before.Objects.map((a,i)=>{const b=DATA.after?.Objects[detection.map[i]];if(!b)return clone(a);const o=clone(b);geometry.forEach(k=>o[k]=clone(a[k]));return o});return base;
+}
+function makeBaseline(){
+ baseline=rawBaseline();if(applied&&calibrationIndex!==null){const i=calibrationIndex,a=DATA.before.Objects[i],b=DATA.after.Objects[detection.map[i]],o=appliedOptions;
+ const r=o.rotate&&!['Up','At'].every(k=>near(a[k],b[k]))?rotation(a,b):null;
+ const delta=sub(b.Position,a.Position).map((v,k)=>o.axes[k]?v:0);
+ baseline.Objects.forEach((part,k)=>{if(part.ObjectID===FLAG)return;if(k===i){baseline.Objects[k]=clone(b);return;}if(r){part.Position=add(mv(r,sub(part.Position,a.Position)),a.Position);part.Up=mv(r,part.Up);part.At=mv(r,part.At)}if(delta.some(v=>v!==0))part.Position=add(part.Position,delta)});
+ }pivot=[...baseline.Objects[pair()[0]].Position];choose();
+}
+function initialize(after,initial=false){
+ const next=analyze(DATA.before,after),preferred=initial?DATA.pairs?.[0]?.[0]:null;if(!initial)remember();
+ const previous=initial?null:{values:values(),pivot:[...pivot],baseline:clone(baseline)};DATA.after=after;detection=next;calibrationIndex=next.reference;
+ DATA.pairs=DATA.before.Objects.map((o,i)=>[i,i]).filter(([i])=>{if(DATA.before.Objects[i].ObjectID===FLAG)return false;try{frame(DATA.before.Objects[i]);return true}catch{return false}});
+ if(!DATA.pairs.length)throw Error('No part has a usable orientation for a manual pivot.');
+ const target=calibrationIndex??preferred??DATA.pairs[0][0];selected=Math.max(0,DATA.pairs.findIndex(([i])=>i===target));applied=false;appliedOptions=null;populate();
+ if(previous){baseline=rawBaseline();baseline.Objects.forEach((o,i)=>geometry.forEach(k=>o[k]=clone(previous.baseline.Objects[i][k])));pivot=[...baseline.Objects[pair()[0]].Position];const r=previous.values.slice(0,3),t=add(previous.values.slice(3),sub(sub(previous.pivot,euler(previous.pivot,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);choose()}else makeBaseline();
+}
 function euler(v,r){let [x,y,z]=v;let [a,b,c]=r.map(d=>d*Math.PI/180);[y,z]=[y*Math.cos(a)-z*Math.sin(a),y*Math.sin(a)+z*Math.cos(a)];[x,z]=[x*Math.cos(b)+z*Math.sin(b),-x*Math.sin(b)+z*Math.cos(b)];return [x*Math.cos(c)-y*Math.sin(c),x*Math.sin(c)+y*Math.cos(c),z]}
-function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);output.Objects.forEach(o=>{if(o.ObjectID===FLAG)return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return output}
+function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);if(v.every(x=>x===0))return output;output.Objects.forEach(o=>{if(o.ObjectID===FLAG)return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return output}
 function project(p){let [x,y,z]=sub(p,camera.center);const c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);[x,z]=[x*c-z*s,x*s+z*c];const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);[y,z]=[y*cp-z*sp,y*sp+z*cp];return [canvas.clientWidth/2+x*camera.zoom+camera.pan[0],canvas.clientHeight/2-y*camera.zoom+camera.pan[1],z]}
 function fit(){const all=DATA.before.Objects.map(o=>o.Position);const lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));camera.center=add(lo,hi).map(v=>v/2);span=Math.max(2,Math.hypot(...sub(hi,lo)));camera.zoom=Math.min(canvas.clientWidth,canvas.clientHeight)*.7/span;camera.pan=[0,0];draw()}
 function line(a,b,color,width=1){a=project(a);b=project(b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a.slice(0,2));ctx.lineTo(...b.slice(0,2));ctx.stroke()}
@@ -50,16 +113,20 @@ function layer(objects,original){objects.map((o,i)=>({o,i,p:project(o.Position)}
 if($('original').checked)layer(DATA.before.Objects,true);if($('proposed').checked){layer(out.Objects,false);const o=out.Objects[applied?refNew:refOld],f=frame(o),n=span*.09;f.forEach((v,i)=>line(o.Position,add(o.Position,v.map(x=>x*n)),['#ff7777','#64e6a3','#55b5ff'][i],3))}
 // Local-axis adjustment handles at the selected pivot.
 const p=add(pivot,values().slice(3));if($('mode').value==='move'||$('mode').value==='rotate'){[0,1,2].forEach(i=>{let v=[0,0,0];v[i]=span*.15;line(p,add(p,v),['#ff7777','#64e6a3','#55b5ff'][i],Number($('axis').value)===i?4:1)})}
-const originals=applied?DATA.after.Objects:DATA.before.Objects;let max=0;out.Objects.forEach((o,i)=>{if(o.ObjectID===FLAG)return;const source=applied&&i===refNew?DATA.before.Objects[refOld]:originals[i];max=Math.max(max,Math.hypot(...sub(o.Position,source.Position)))});const measured=rotation(DATA.before.Objects[refOld],DATA.after.Objects[refNew]);const angle=Math.acos(Math.max(-1,Math.min(1,(measured[0][0]+measured[1][1]+measured[2][2]-1)/2)))*180/Math.PI;$('status').textContent=`${applied?'Reference correction applied':'Original placement · manual editing'}\nMeasured reference rotation: ${angle.toFixed(3)}°\n${out.Objects.length} parts · largest movement ${max.toFixed(3)} units\nBase Computer unchanged. Rotation order: X, then Y, then Z.`;lastValues=values();$('download').disabled=false;$('undo').disabled=!history.length;
+let max=0,changed=false;out.Objects.forEach((o,i)=>{if(o.ObjectID===FLAG)return;const source=DATA.before.Objects[i];max=Math.max(max,Math.hypot(...sub(o.Position,source.Position)));if(!sameGeometry(o,source))changed=true});
+let measured='No measured reference correction.';if(calibrationIndex!==null){const a=DATA.before.Objects[calibrationIndex],b=DATA.after.Objects[detection.map[calibrationIndex]],r=rotation(a,b),angle=Math.acos(Math.max(-1,Math.min(1,(r[0][0]+r[1][1]+r[2][2]-1)/2)))*180/Math.PI;const o=options(),delta=sub(b.Position,a.Position);measured='Measured movement XYZ: '+delta.map(v=>v.toFixed(3)).join(', ')+' units; rotation '+angle.toFixed(3)+'°.\nNext alignment: '+['X','Y','Z'].filter((_,k)=>o.axes[k]).map((name)=>name+' '+delta[['X','Y','Z'].indexOf(name)].toFixed(3)).join(', ')+(o.axes.some(Boolean)?' units. ':'No movement. ')+(o.rotate?'Full measured rotation.':'No rotation.');}
+$('status').textContent=(applied?'Reference correction applied.':'Manual editing.')+'\n'+measured+'\nManual rotation XYZ: '+values().slice(0,3).join(', ')+'°; movement XYZ: '+values().slice(3).join(', ')+'.\n'+out.Objects.length+' parts · largest movement '+max.toFixed(3)+' units.\n'+(!changed?'No meaningful geometric change.\n':'')+'Base Computer unchanged. Rotation order: X, then Y, then Z.';lastValues=values();$('download').disabled=false;$('download').title=changed?'Download proposed base':'No meaningful geometric change';$('undo').disabled=!history.length;updateControls();
+
 }catch(e){$('status').textContent=e.message;$('download').disabled=true}}
-function select(index){remember();selected=index;applied=false;setValues([0,0,0,0,0,0]);makeBaseline();draw()}
-if(!DATA){$('status').textContent='Generate an editor using nms_base_align_3d.py with your two exports.';$('download').disabled=true;throw Error('No base data embedded')}
-DATA.pairs.forEach(([i,j],n)=>{const opt=document.createElement('option');opt.value=n;opt.textContent=`${DATA.before.Objects[i].ObjectID} · #${i} → #${j}`;$('reference').append(opt)});
+function select(index){if(index===selected)return;remember();const old=[...pivot],v=values();selected=index;pivot=[...baseline.Objects[pair()[0]].Position];const r=v.slice(0,3),t=add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);choose();draw()}
+if(!DATA)throw Error('Generate an editor using one base export, optionally followed by an After export.');
 $('reference').onchange=()=>select(Number($('reference').value));
-$('apply').onclick=()=>{remember();applied=true;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
+$('apply').onclick=()=>{if(calibrationIndex===null)return;const o=options();if(applied&&JSON.stringify(o)===JSON.stringify(appliedOptions))return;remember();const old=[...pivot],v=values();applied=true;appliedOptions=o;makeBaseline();const r=v.slice(0,3),t=add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);draw()};
+$('afterFile').onchange=async()=>{try{const file=$('afterFile').files[0];if(!file)return;const after=JSON.parse((await file.text()).replace(/^\uFEFF/,''));initialize(after);draw()}catch(e){$('calibrationInfo').textContent=e.message}finally{$('afterFile').value=''}};
+['mx','my','mz','measuredRotation'].forEach(id=>$(id).onchange=draw);
 fields.forEach(id=>{$(id).oninput=()=>{history.push({...snapshot(),values:[...lastValues]});if(history.length>100)history.shift();draw()}});
-$('undo').onclick=()=>{const s=history.pop();if(!s)return;selected=s.selected;applied=s.applied;setValues(s.values);makeBaseline();draw()};
-$('reset').onclick=()=>{remember();applied=false;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
+$('undo').onclick=()=>{const s=history.pop();if(!s)return;selected=s.selected;applied=s.applied;baseline=s.baseline;pivot=s.pivot;Object.assign(DATA,s.data);detection=s.detection;calibrationIndex=s.calibrationIndex;appliedOptions=s.appliedOptions;setOptions(s.options);setValues(s.values);populate();choose();draw()};
+$('reset').onclick=()=>{remember();applied=false;appliedOptions=null;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
 ['original','proposed','mode','axis'].forEach(id=>$(id).onchange=draw);
 $('fit').onclick=fit;['top','front','side'].forEach((id,i)=>$(id).onclick=()=>{camera.yaw=[0,0,Math.PI/2][i];camera.pitch=[Math.PI/2,0,0][i];draw()});
 let drag=null;canvas.oncontextmenu=e=>e.preventDefault();canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);const mode=e.button===2?'pan':$('mode').value;drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,mode,v:values()};if(mode==='rotate'||mode==='move')remember()};
@@ -67,5 +134,5 @@ canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-
 canvas.onpointerup=e=>{if(!drag)return;if(drag.mode==='orbit'&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const hits=points.map(p=>({...p,d:Math.hypot(x-p.x,y-p.y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d);const hit=hits.find(p=>DATA.pairs.some(pair=>pair[0]===p.i));if(hit)select(DATA.pairs.findIndex(pair=>pair[0]===hit.i))}drag=null};canvas.onpointercancel=()=>drag=null;
 canvas.onwheel=e=>{e.preventDefault();camera.zoom=Math.max(.0001,Math.min(1e6,camera.zoom*Math.exp(-e.deltaY*.001)));draw()};
 $('download').onclick=()=>{try{const out=result();if(out.Objects.some(o=>['Position','Up','At'].some(k=>!o[k].every(Number.isFinite))))throw Error('Adjustment is too large. Enter smaller values.');const blob=new Blob([JSON.stringify(out,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Adjusted Base.nmsbase';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('status').textContent=e.message}};
-window.addEventListener('resize',draw);makeBaseline();fit();
+window.addEventListener('resize',draw);initialize(DATA.after,true);fit();
 </script></html>
