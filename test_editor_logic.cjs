@@ -61,6 +61,25 @@ const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(
  const previous=t.getBlob();t.e("$('download').onclick()");assert.equal(t.getBlob(),previous);
  t.e("bindings[0]='1';changeMembers(new Set([1,2]));$('rz').value=0;draw()");near(t.e('wireEnd(result().Objects[4])'),[12,5,0]);assert.equal(t.e('connectionReport.internal'),1);
  }
+ // Offset sockets, scaled/rotated owner, shared socket precision, and free ends.
+ {
+ const b=fixture();b.Objects[1]=part('^U_BATTERY_S',[2,0,0]);
+ b.Objects[1].Up=[-2,0,0];b.Objects[1].At=[0,0,1];
+ const start=[2-.4816,0,1.5516],end=[20,5,3];
+ const wire=(a,z)=>{const o=part('^U_POWERLINE',a),v=z.map((x,k)=>x-a[k]),n=Math.hypot(...v);o.At=v.map(x=>x*(n+1)/n);o.Up=[0,1,0];return o};
+ b.Objects.push(wire(start,end),wire(start.map((x,k)=>x+(k===0?.00002:0)),[23,2,5]));
+ t=load(b);assert.equal(t.e('junctions.length'),3);
+ assert.equal(t.e("junctions.filter(n=>n.owner===1).length"),1);
+ t.e("$('selective').checked=true;changeScope();changeMembers(new Set([1]));$('ty').value=5;draw()");
+ assert.equal(t.e('connectionReport.unresolved'),0);assert.equal(t.els.download.disabled,false);
+ near(t.e('result().Objects[4].Position'),start.map((x,k)=>x+(k===1?5:0)));
+ near(t.e('wireEnd(result().Objects[4])'),end);
+ near(t.e('result().Objects[4].Position'),t.e('result().Objects[5].Position'));
+ t.e("$('rz').value=37;draw()");near(t.e('wireEnd(result().Objects[4])'),end);
+ t.e("changeMembers(new Set([2]));draw()");
+ assert.deepEqual(json(t.e('result().Objects[4]')),b.Objects[4]);
+ }
+ console.log('Socket checks passed: rotated/scaled owner, shared socket, fixed free ends, unaffected wire preservation.');
  console.log('Selective checks passed: scope, empty selection, undo, unselected geometry, electrical/teleporter endpoints, crossing rotation, export guard.');
  console.log('Editor regression checks passed: manual mode, detection, 8 movement combinations, optional rotation, metadata, pivot, undo/reset, upload, Z export, repeated alignment.');
 })();
