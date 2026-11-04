@@ -3,4 +3,6 @@
 *.pyc
 Preview*.html
 preview*.html
+After.nmsbase
+Before.nmsbase
 __pycache__/

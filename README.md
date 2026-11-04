@@ -9,13 +9,13 @@ Align and adjust No Man's Sky bases exported through Vector Commander's NMSE. Tr
 | Copy construction to another owned base | [Two-object transfer](NMS_Base_Aligner_Run_Guide.md#transfer-between-bases) | Four exports; two repositioned reference objects |
 | Repair an existing base's position and orientation | [Full 3D repair](NMS_Base_Aligner_Run_Guide.md#repair-an-existing-base) | Before/After exports; one existing part moved and rotated |
 | Adjust a base manually in the browser | [Manual adjustment](NMS_Base_Aligner_Run_Guide.md#manual-browser-adjustment) | One export; optionally load an After export later |
-| Repair only an affected area | [Selective Alignment](NMS_Base_Aligner_Run_Guide.md#selective-alignment) | Either browser workflow; select pieces and resolve wire attachments |
+| Repair only an affected area | [Selective Alignment](NMS_Base_Aligner_Run_Guide.md#selective-alignment) | Either browser workflow; select pieces; supported wire attachments follow automatically |
 
 ## Browser features
 
 Whole-base alignment is the default; the Base Computer stays fixed. Measured X/Y/Z movement components and measured rotation can be enabled separately. Manual movement and rotation, a selectable pivot, Undo/Reset, camera presets, and downloadable exports support placement refinement.
 
-Check **Enable Selective Alignment** to select pieces with a rectangle, circle, or individual clicks. Add/remove selection controls refine membership; camera changes preserve it. Electrical (`^U_POWERLINE`) and miniportal (`^U_PORTALLINE`) wires receive endpoint-aware handling in selective mode. Assign uncertain connection attachments before export. See the guide for the full procedure and limitations.
+Check **Enable Selective Alignment** to select pieces with a rectangle, circle, or individual clicks. Add/remove selection controls refine membership; camera changes preserve it. Electrical (`^U_POWERLINE`) and miniportal (`^U_PORTALLINE`) wire endpoints are matched automatically to supported sockets in the Before file, accounting for object rotation and scale. Attached endpoints follow their original objects; endpoints sharing a socket stay joined. Existing free ends and unattached wire junctions stay fixed during selective alignment and do not block export. Ambiguous matches require review; unsupported sockets remain a limitation. See the guide for the full procedure and limitations.
 
 Coordinates use X/Z horizontally and Y vertically. Camera direction does not redefine those axes. The [coordinate explanation](NMS_Base_Aligner_Run_Guide.md#coordinates-and-axes) is included in the Run Guide.
 

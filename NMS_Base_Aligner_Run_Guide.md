@@ -128,7 +128,7 @@ Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pa
 
 **Undo** restores earlier edits, including scope, selection, and connection assignments. **Reset to original** removes measured and manual corrections while retaining the current selection and connection assignments. Latest After metadata is retained; Reset is a geometry reset, not a return to Before metadata.
 
-**Download adjusted .nmsbase** creates `Adjusted Base.nmsbase` in the browser's download location. Base metadata and non-geometric object properties come from the latest export. The Base Computer is never transformed. Ordinary construction orientation vectors rotate without changing length. Selective wires can change length/direction to preserve their assigned endpoints.
+**Download adjusted .nmsbase** creates `Adjusted Base.nmsbase` in the browser's download location. Base metadata and non-geometric object properties come from the latest export. The Base Computer is never transformed. Ordinary construction orientation vectors rotate without changing length. Selective wires can change length/direction to preserve their original socket attachments while existing free endpoints remain fixed.
 
 Back up the save, close the game, and import the downloaded file into the same base with NMSE. Check placement, electrical power, and miniportal links in-game before saving. **Existing-base repair and manual editing do not require restoring a computer-only save.** Do not use the transfer workflow's restoration step for an existing-base repair.
 
@@ -141,7 +141,7 @@ Leave **Enable Selective Alignment** unchecked to move the whole construction us
 3. Inspect the yellow selection and selected-piece count. Use Add/Remove and individual clicks to refine it, or **Clear selection** to start again. The Base Computer and wire objects are not directly selectable.
 4. Check Top, Front, and Side views for overlapping objects. Shapes select through all depths; there is no depth/height filter. Membership stays attached to object indices when the camera or preview changes. Enable **Show original** to see the points used for selection.
 5. Apply the measured correction and/or make manual adjustments. Only selected construction pieces move; unselected construction geometry stays fixed. A manual pivot may be outside the selection.
-6. Resolve connection assignments as described below, then inspect and download.
+6. Inspect the connection summary and preview, review any ambiguous attachments as described below, then download. Supported socket attachments are automatic; existing free ends do not require a choice.
 
 With selective mode enabled and no pieces selected, alignment application and export are disabled. Unchecking the checkbox restores whole-base scope while retaining the selection for later use. Scope and selection changes recompute the preview from the original geometry and current correction rather than accumulating extra movement.
 
@@ -149,26 +149,25 @@ With selective mode enabled and no pieces selected, alignment application and ex
 
 Selective mode handles standard electrical wires (`^U_POWERLINE`) and miniportal/short-range teleporter wires (`^U_PORTALLINE`). Selecting a device does not automatically select the rest of its network.
 
-Open **Connection attachments** to review junctions. Endpoints of the same wire type at the same position (within a small numeric tolerance) share one assignment, so joined wire segments stay joined. Electrical and teleporter junctions are kept separate.
+Open **Connection attachments** to inspect automatic attachment results. The editor matches endpoints against a bundled socket catalogue using the Before file's object positions, orientations, and scales. A unique compatible socket within 0.001 local game units identifies the original attachment. Electrical and miniportal sockets are matched separately.
 
-An endpoint coinciding with exactly one non-wire object's origin is assigned automatically. This is not a general socket database: sockets offset from object origins, ambiguous matches, and free junctions can require manual assignment. For each unresolved junction, choose:
+An attached endpoint follows its original object's position and orientation when that object moves; otherwise it stays fixed. Endpoints attached to the same socket share one junction, including endpoints with small numeric differences. Nearby unattached endpoints of the same wire type also share a junction within the matching tolerance. Selecting a device does not select other devices in its network.
 
-| Assignment | Effect |
-| --- | --- |
-| A listed object ID and index | Follow that object's position and orientation if it moves; otherwise remain fixed. Choose the actual device for an offset socket. |
-| Move with selection | Apply the common correction to this junction, useful for a free junction inside the moving area. |
-| Keep fixed | Leave the junction at its original position, useful outside the affected area. |
-| Resolve attachment | Remain unresolved; selective export is blocked. |
-
-Assignments determine endpoint movement; the rectangle/circle alone does not decide free-junction behavior. Review the assignments before exporting. In particular, assigning a junction to an unrelated nearby object can preserve a visual line without preserving the intended socket connection.
+Existing free endpoints and unattached wire junctions stay at their original positions during selective alignment. They are preserved as existing geometry and do not block export. For example, a wire attached to a selected solar panel at one end and free at the other follows the panel at its attached end while the free end stays fixed. If the panel stays stationary, that wire remains unchanged. The status reports the number of existing free ends preserved.
 
 | Segment endpoints | Result |
 | --- | --- |
-| Both move | Both follow their assignments. |
-| Neither moves | The segment stays unchanged. |
-| Only one moves | The moving end follows its assignment; the other stays fixed, changing segment length and direction. |
+| Both attached objects move | Each endpoint follows its original object. |
+| Neither endpoint moves | The segment stays unchanged. |
+| Only one endpoint moves | That end follows its object; the other stays fixed, changing segment length and direction. |
 
-The preview draws crossing wires purple, unresolved wires red, and other resolved wires in a muted color. The status report counts internal, crossing, fixed, and unresolved segments. Every junction must be resolved for selective export; a segment collapsed to zero length also blocks export. The exporter preserves other wire properties while updating geometry. In whole-base mode, wires retain the established whole-base transform behavior; the endpoint-assignment workflow applies to selective mode.
+The catalogue covers 214 part IDs; it is not a complete guarantee for every game part or version. For parts without catalogue entries, a unique exact object-origin match remains supported. Other unmatched endpoints are preserved as fixed geometry, so an unsupported device socket may be treated as unattached. Inspect affected connections carefully when using unsupported parts.
+
+Multiple socket candidates remain ambiguous rather than being assigned arbitrarily. Only ambiguous junctions expose assignment controls. Choose the actual attached object if known; **Keep fixed** or **Move with selection** explicitly overrides endpoint movement, and **Resolve attachment** leaves the ambiguity unresolved. Do not assign a socket to an unrelated nearby object. Routine supported attachments and existing free ends require no manual assignment.
+
+The preview draws crossing wires purple, unresolved wires red, and other resolved wires in a muted color. The status report counts internal, crossing, fixed, and unresolved segments. Unresolved ambiguous attachments or a moved segment collapsed to zero length block selective export. Existing free endpoints do not. The exporter preserves other wire properties while updating geometry.
+
+In whole-base mode, wires follow the established whole-base transform, including free ends, preserving their shape. The fixed-free-end policy applies to selective alignment.
 
 These checks establish geometry, not an in-game connectivity guarantee. Verify both power delivery and miniportal travel after import.
 
@@ -241,4 +240,4 @@ node test_editor.cjs
 
 The browser smoke test uses a local Windows Chrome installation and Node 22+ with no npm dependencies. It creates synthetic fixtures and a temporary browser profile under the system temporary directory. It checks the real generated page, single-file generation, After-file loading, measured translation options, rotation, manual edits, undo/reset, download, rectangle/circle selection, camera-stable membership, and scope toggling. Set the `PYTHON` environment variable to the Python executable if `py` is unavailable.
 
-The Node logic regressions cover selective scope, empty-selection/export guards, unselected geometry, electrical and teleporter endpoints, crossing connections under rotation, and unresolved attachments, alongside existing alignment behavior. The Python suite covers generation, calibration, identity validation, and geometry. These synthetic tests do not replace in-game validation.
+The Node logic regressions cover selective scope, empty-selection/export guards, unselected geometry, electrical and teleporter endpoints, crossing connections under rotation, and unresolved attachments, alongside existing alignment behavior. Socket regressions also cover offset sockets on rotated/scaled objects, shared socket junctions with small coordinate differences, fixed free ends during translation and rotation, and preservation of unaffected wires. The Python suite covers generation, calibration, identity validation, and geometry. These synthetic tests do not replace in-game validation.
