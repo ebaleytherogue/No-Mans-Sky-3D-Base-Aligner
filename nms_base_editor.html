@@ -157,19 +157,21 @@ function analyze(before,after){
  for(const k of ['GalacticAddress','Position','Forward','Owner'])if(stable(before[k])!==stable(after[k]))throw Error('Base identity changed: '+k);
  const flagA=before.Objects.find(o=>o.ObjectID===FLAG),flagB=after.Objects.find(o=>o.ObjectID===FLAG);
  if(!sameGeometry(flagA,flagB)||stable(nonGeometry(flagA))!==stable(nonGeometry(flagB)))throw Error('The Base Computer changed. Leave it untouched.');
- const ids=b=>b.Objects.map(o=>o.ObjectID).sort();if(JSON.stringify(ids(before))!==JSON.stringify(ids(after)))throw Error('Parts were added or deleted. Move one existing part only.');
+ const ids=b=>b.Objects.filter(o=>!isWiring(o)).map(o=>o.ObjectID).sort();if(JSON.stringify(ids(before))!==JSON.stringify(ids(after)))throw Error('Parts were added or deleted. Move one existing part only.');
+ const wireCountChanged=before.Objects.filter(isWiring).length!==after.Objects.filter(isWiring).length;
  const left=new Set(after.Objects.map((_,i)=>i)),map=before.Objects.map(()=>null);
  before.Objects.forEach((a,i)=>{const j=[...left].find(j=>sameGeometry(a,after.Objects[j]));if(j!==undefined){map[i]=j;left.delete(j)}});
  // Ignore changed wire geometry for reference detection; retain a complete map.
- before.Objects.forEach((a,i)=>{if(map[i]!==null||!isWiring(a))return;const j=[...left].find(j=>a.ObjectID===after.Objects[j].ObjectID);map[i]=j;left.delete(j)});
- const changed=map.map((j,i)=>j===null?i:null).filter(i=>i!==null);
+ before.Objects.forEach((a,i)=>{if(map[i]!==null||!isWiring(a))return;const j=[...left].find(j=>a.ObjectID===after.Objects[j].ObjectID);if(j!==undefined){map[i]=j;left.delete(j)}});
+ for(const j of left)if(isWiring(after.Objects[j]))left.delete(j);
+ const changed=map.map((j,i)=>j===null&&!isWiring(before.Objects[i])?i:null).filter(i=>i!==null);
  if(changed.length>1)throw Error('Multiple parts have meaningful geometric changes; the corrected reference is ambiguous. Adjust only one part.');
  let reference=null;if(changed.length===1){const i=changed[0],j=[...left][0];if(before.Objects[i].ObjectID!==after.Objects[j].ObjectID)throw Error('Cannot match the corrected reference.');
  const a=before.Objects[i],b=after.Objects[j];for(const k of ['Up','At'])if(Math.abs(dot(a[k],a[k])-dot(b[k],b[k]))>Math.max(1e-8,1e-5*dot(a[k],a[k])))throw Error('Reference scale changed. Move and rotate without resizing.');
  for(const o of [a,b]){if(Math.abs(dot(unit(o.Up),unit(o.At)))>1e-4)throw Error('Reference Up and At must be perpendicular.');frame(o)}
  map[i]=j;reference=i;}
- const other=map.reduce((n,j,i)=>n+(stable(nonGeometry(before.Objects[i]))!==stable(nonGeometry(after.Objects[j]))?1:0),0);
- return {map,reference,message:(reference===null?'No meaningful reference change. Manual editing available.':'Detected corrected reference: '+before.Objects[reference].ObjectID+' · #'+reference)+(other?' Unrelated properties changed on '+other+' part(s); After properties will be retained.':'')};
+ const other=map.reduce((n,j,i)=>n+(j!==null&&stable(nonGeometry(before.Objects[i]))!==stable(nonGeometry(after.Objects[j]))?1:0),0);
+ return {map,reference,message:(reference===null?'No meaningful reference change. Manual editing available.':'Detected corrected reference: '+before.Objects[reference].ObjectID+' · #'+reference)+(other?' Unrelated properties changed on '+other+' part(s); After properties will be retained.':'')+(wireCountChanged?' Wire count changed; original Before wiring is preserved.':'')};
 }
 function pair(){return DATA.pairs[selected]}
 function choose(){const [i]=pair();$('reference').value=String(selected);$('referenceInfo').textContent='Manual pivot: '+DATA.before.Objects[i].ObjectID+' · #'+i+'. Changing the pivot preserves the proposed layout.';updateControls()}

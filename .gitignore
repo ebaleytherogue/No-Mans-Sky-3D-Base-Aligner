@@ -3,6 +3,7 @@
 *.pyc
 Preview*.html
 preview*.html
+Preview_Wiring_Fix.html
 After.nmsbase
 Before.nmsbase
 __pycache__/

@@ -49,7 +49,7 @@ def validate(before, after):
             raise AlignmentError(f'Base identity field {key} changed between exports.')
     if flag(before) != flag(after):
         raise AlignmentError('The Base Computer changed. Leave it untouched during calibration.')
-    if Counter(o['ObjectID'] for o in before['Objects']) != Counter(o['ObjectID'] for o in after['Objects']):
+    if Counter(o['ObjectID'] for o in before['Objects'] if not is_wiring(o)) != Counter(o['ObjectID'] for o in after['Objects'] if not is_wiring(o)):
         raise AlignmentError('Parts were added or deleted. Move and rotate one existing part only.')
 
 
@@ -80,7 +80,9 @@ def wiring_pairs(before, after):
             remaining.remove(j)
     for i, obj in enumerate(before['Objects']):
         if is_wiring(obj) and i not in pairs:
-            j = next(j for j in sorted(remaining) if obj['ObjectID'] == after['Objects'][j]['ObjectID'])
+            j = next((j for j in sorted(remaining) if obj['ObjectID'] == after['Objects'][j]['ObjectID']), None)
+            if j is None:
+                continue
             pairs[i] = j
             remaining.remove(j)
     return pairs
@@ -90,16 +92,16 @@ def reference_pairs(before, after, selector=None):
     validate(before, after)
     old, new = before['Objects'], after['Objects']
     matches = wiring_pairs(before, after)
-    remaining = set(range(len(new))) - set(matches.values())
+    remaining = {j for j, obj in enumerate(new) if not is_wiring(obj)}
     for i, obj in enumerate(old):
-        if i in matches:
+        if i in matches or is_wiring(obj):
             continue
         options = [j for j in sorted(remaining) if geometry_equal(obj, new[j])]
         if options:
             j = options[0]
             matches[i] = j
             remaining.remove(j)
-    unmatched = [i for i in range(len(old)) if i not in matches]
+    unmatched = [i for i in range(len(old)) if i not in matches and not is_wiring(old[i])]
     changed = bool(unmatched)
     if selector:
         if ':' in selector:
@@ -155,9 +157,17 @@ def align(before, after, pair, axes=(True, True, True), apply_rotation=True):
     shift = [(y-x) if enabled else 0 for x, y, enabled in zip(a['Position'], b['Position'], axes)]
     result = copy.deepcopy(after)
     # Ignore After wire movement: transform the original wiring exactly once.
-    for old_index, new_index in wiring_pairs(before, after).items():
+    wire_matches = wiring_pairs(before, after)
+    # Retain every original segment, even if moving a device removed/rebuilt
+    # segments in After. Keep matched After properties where available.
+    for old_index, new_index in wire_matches.items():
         for field in ('Position', 'Up', 'At'):
             result['Objects'][new_index][field] = copy.deepcopy(before['Objects'][old_index][field])
+    kept = [k for k, obj in enumerate(after['Objects']) if not is_wiring(obj) or k in wire_matches.values()]
+    result['Objects'] = [result['Objects'][k] for k in kept] + [
+        copy.deepcopy(obj) for i, obj in enumerate(before['Objects'])
+        if is_wiring(obj) and i not in wire_matches]
+    j = kept.index(j)
     for index, obj in enumerate(result['Objects']):
         if obj['ObjectID'] == FLAG or index == j:
             continue
