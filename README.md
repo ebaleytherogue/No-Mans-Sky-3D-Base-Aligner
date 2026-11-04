@@ -1,5 +1,7 @@
 # No-Mans-Sky-3D-Base-Aligner
 
+See walkthrough video at https://youtu.be/1q_TYTSEzFk 
+
 Align and adjust No Man's Sky bases exported through Vector Commander's NMSE. Transfer construction between bases, repair a shifted or tilted base, or adjust placement manually in an offline browser editor.
 
 ## Choose a workflow
