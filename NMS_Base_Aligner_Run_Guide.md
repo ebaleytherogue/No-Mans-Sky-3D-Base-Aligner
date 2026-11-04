@@ -92,7 +92,11 @@ The part must have usable, perpendicular Up/At vectors and unchanged scale. Wiri
 py nms_base_align.py 3d "Before.nmsbase" "After.nmsbase" -o "Preview.html"
 ```
 
-The app identifies the one changed part, including an orientation-only change and a repeated part ID. It rejects changed ownership/location, added or deleted parts, changes to other objects, and changes to the Base Computer. Matching unchanged objects is deliberately strict: even unrelated per-object data changes require a fresh calibration.
+The app identifies the one changed non-wiring part, including an orientation-only change and a repeated part ID. It rejects changed base identity/location, added or deleted parts, multiple meaningful non-wiring geometry changes, reference resizing, and changes to the Base Computer. Incidental electrical or miniportal wire movement does not become a calibration reference: original wire geometry is used so it is not moved twice. Unrelated non-geometric object-property changes are retained from After; the browser reports these separately.
+
+If `Preview.html` already exists, choose another output name or add `--overwrite`. Never use the template filename `nms_base_editor.html` as your generated output. Regenerate the page after updating the scripts/template; older generated pages contain their own earlier editor code.
+
+The Windows helpers `generate_browser_Two_Files_REFERENCE.bat` and `generate_browser_Single_File_NO_REFERENCE.bat` contain example commands. Edit their input/output filenames for your exports before running them. The single-file helper uses `That_Base.nmsbase` as its placeholder.
 
 To explicitly select a unique object type, add `--reference "^BUILDBEACON"` (use the exact ObjectID from your export). For repeated IDs, specify zero-based before:after indices, such as `--reference "13:17"`. Indices include the Base Computer in each Objects array. The exports can have different object ordering.
 
@@ -100,24 +104,100 @@ With a calibration pair, only the changed part is eligible: the app will not sil
 
 ## Manual browser adjustment
 
-For manual adjustment without in-game calibration, supply the same export twice:
+For manual adjustment without in-game calibration, supply one export:
 
-[The need for stating the same file twice is due to the command line interface. It was easier to implement this, by using the repeat filename, rather than re-writing more bits of code. - the author]
 ```text
-py nms_base_align.py 3d "Before.nmsbase" "Before.nmsbase" -o "Preview.html"
+py nms_base_align.py 3d "Before.nmsbase" -o "Preview.html"
 ```
 
-Open Preview.html. Choose a reference from the dropdown or click its gray point. Exact duplicate objects with identical data require explicit index selection using --reference, as described above. The reference becomes the rotation pivot. Use the browser controls below for both manual editing and calibrated repair.
+Supplying the same export twice remains supported, but is unnecessary. Open Preview.html and choose a manual rotation pivot from the dropdown or click an eligible original point. Entries include object indices so repeated IDs can be distinguished. Electrical and miniportal wires and the Base Computer are excluded from pivot choices.
 
 ### Browser controls and export
 
-Open `Preview.html` in a browser. It is self-contained and works offline; nothing is uploaded. For a calibrated before/after pair, select **Apply reference correction** to apply the measured full 3D correction. Inspect the original gray and proposed blue points, green reference, orange computer, and reference orientation arrows.
+The generated page is self-contained and works offline; no file is sent to a server.
 
-Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pan. Top, Front, Side, and Fit buttons control the camera only. Select **Rotate base** or **Move base**, choose X/Y/Z, then drag to adjust the construction. Colored axis handles indicate the selected local axis; numeric fields allow exact values. Manual rotation uses fixed local X, then Y, then Z axes about the reference pivot; movement uses local game coordinates. The reference moves with manual adjustments. Undo restores previous edits; Reset restores the original construction. Selecting a different reference clears the current adjustment.
+**Add After file** loads a corrected export into the open page. The editor detects the calibration reference, retains current manual adjustments, and reports validation errors without discarding the current layout. This file input is local even though the interaction is sometimes called an upload. Loading After does not itself apply the measured correction.
 
-**Download adjusted .nmsbase** creates `Adjusted Base.nmsbase` in your browser's download location. Base metadata comes from the latest export; the Base Computer is never transformed. Positions and orientation vectors are rotated together without changing vector lengths, preserving scale. Other object fields are retained.
+For a valid calibration pair, **Align rest of base to corrected reference** applies the measured correction. The X/Y/Z checkboxes under **Apply measured movement** select translation components, and **Apply measured rotation** enables or disables the full measured rotation. Changing these options changes the next alignment application; click the alignment button again to apply the new options. Applying the same options again does not stack another copy of the correction. Manual adjustments are preserved.
 
-Back up the save, close the game, and use NMSE to import the downloaded file into the same base. Check the result in-game before saving. **Existing-base repair and manual editing do not require restoring a computer-only save.** Do not use the legacy transfer workflow's restoration step for an existing-base repair.
+The corrected reference itself retains its exact After geometry when it is in the moving scope, even when some measured components are disabled for the other pieces. A reference outside a selective selection remains in its original geometry. Calibration reference detection and the manual pivot are separate: choosing another pivot does not change which part supplied the measured correction.
+
+Inspect original gray and proposed blue points, the green reference, orange fixed computer, and orientation arrows. In selective mode, selected pieces are yellow and unselected pieces are subdued. The viewer shows positions, not part meshes.
+
+Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pan. Top, Front, Side, and Fit control the camera only. Select **Rotate base on selected axis** or **Move base on selected axis**, choose X/Y/Z, then drag. Colored axis handles indicate the selected local axis. Numeric fields allow exact values. Manual rotation uses fixed local X, then Y, then Z axes about the manual pivot, followed by translation. Changing the pivot preserves the proposed layout instead of clearing adjustments.
+
+**Undo** restores earlier edits, including scope, selection, and connection assignments. **Reset to original** removes measured and manual corrections while retaining the current selection and connection assignments. Latest After metadata is retained; Reset is a geometry reset, not a return to Before metadata.
+
+**Download adjusted .nmsbase** creates `Adjusted Base.nmsbase` in the browser's download location. Base metadata and non-geometric object properties come from the latest export. The Base Computer is never transformed. Ordinary construction orientation vectors rotate without changing length. Selective wires can change length/direction to preserve their assigned endpoints.
+
+Back up the save, close the game, and import the downloaded file into the same base with NMSE. Check placement, electrical power, and miniportal links in-game before saving. **Existing-base repair and manual editing do not require restoring a computer-only save.** Do not use the transfer workflow's restoration step for an existing-base repair.
+
+### Selective Alignment
+
+Leave **Enable Selective Alignment** unchecked to move the whole construction using the existing rules, with the Base Computer fixed. Enable it when only an affected area needs correction.
+
+1. Check **Enable Selective Alignment**. The drag action switches to **Select pieces**.
+2. Choose **Rectangle** or **Circle** and **Replace**, **Add**, or **Remove**. Draw around original object positions; the circle grows outward from the drag's starting point. A click picks the nearest eligible original point within the click tolerance.
+3. Inspect the yellow selection and selected-piece count. Use Add/Remove and individual clicks to refine it, or **Clear selection** to start again. The Base Computer and wire objects are not directly selectable.
+4. Check Top, Front, and Side views for overlapping objects. Shapes select through all depths; there is no depth/height filter. Membership stays attached to object indices when the camera or preview changes. Enable **Show original** to see the points used for selection.
+5. Apply the measured correction and/or make manual adjustments. Only selected construction pieces move; unselected construction geometry stays fixed. A manual pivot may be outside the selection.
+6. Resolve connection assignments as described below, then inspect and download.
+
+With selective mode enabled and no pieces selected, alignment application and export are disabled. Unchecking the checkbox restores whole-base scope while retaining the selection for later use. Scope and selection changes recompute the preview from the original geometry and current correction rather than accumulating extra movement.
+
+### Electrical and miniportal connections
+
+Selective mode handles standard electrical wires (`^U_POWERLINE`) and miniportal/short-range teleporter wires (`^U_PORTALLINE`). Selecting a device does not automatically select the rest of its network.
+
+Open **Connection attachments** to review junctions. Endpoints of the same wire type at the same position (within a small numeric tolerance) share one assignment, so joined wire segments stay joined. Electrical and teleporter junctions are kept separate.
+
+An endpoint coinciding with exactly one non-wire object's origin is assigned automatically. This is not a general socket database: sockets offset from object origins, ambiguous matches, and free junctions can require manual assignment. For each unresolved junction, choose:
+
+| Assignment | Effect |
+| --- | --- |
+| A listed object ID and index | Follow that object's position and orientation if it moves; otherwise remain fixed. Choose the actual device for an offset socket. |
+| Move with selection | Apply the common correction to this junction, useful for a free junction inside the moving area. |
+| Keep fixed | Leave the junction at its original position, useful outside the affected area. |
+| Resolve attachment | Remain unresolved; selective export is blocked. |
+
+Assignments determine endpoint movement; the rectangle/circle alone does not decide free-junction behavior. Review the assignments before exporting. In particular, assigning a junction to an unrelated nearby object can preserve a visual line without preserving the intended socket connection.
+
+| Segment endpoints | Result |
+| --- | --- |
+| Both move | Both follow their assignments. |
+| Neither moves | The segment stays unchanged. |
+| Only one moves | The moving end follows its assignment; the other stays fixed, changing segment length and direction. |
+
+The preview draws crossing wires purple, unresolved wires red, and other resolved wires in a muted color. The status report counts internal, crossing, fixed, and unresolved segments. Every junction must be resolved for selective export; a segment collapsed to zero length also blocks export. The exporter preserves other wire properties while updating geometry. In whole-base mode, wires retain the established whole-base transform behavior; the endpoint-assignment workflow applies to selective mode.
+
+These checks establish geometry, not an in-game connectivity guarantee. Verify both power delivery and miniportal travel after import.
+
+## Coordinates and axes
+
+Positions use `[X, Y, Z]` in the base's local coordinate system:
+
+| Axis | Position role | Browser rotation label |
+| --- | --- | --- |
+| X | Horizontal | Pitch |
+| Y | Vertical / height | Yaw |
+| Z | Horizontal | Roll |
+
+**X and Z form the horizontal plane; Y is vertical.** Left/right and forward/backward are only informal descriptions. Saved axes are not redefined by turning the camera and are not established player-relative or compass directions.
+
+Translation adds an offset:
+
+```text
+new_position = old_position + [dx, dy, dz]
+[10, 20, 30] + [2, -3, 4] = [12, 17, 34]
+```
+
+X/Z translation moves horizontally; Y translation changes height. Translation does not rotate `Up` or `At`. Positive offsets increase coordinate values; negative offsets decrease them. Verify physical sign directions with controlled in-game tests rather than assuming +X means player-right or +Z means player-forward. The coordinate roles alone do not establish a complete physical sign mapping.
+
+Rotation **about** an axis differs from movement **along** it. Browser Y rotation changes heading; X/Z rotations can introduce tilt and change height. Full measured rotation can change all three coordinates, so disabling Y translation does not freeze height when rotation is enabled.
+
+The two-object transfer formula in `nms_base_align.py: rotate` rotates horizontally about Y, not Z. It leaves Y unchanged until the anchor's separate height offset is added. Its formula and browser `euler` use opposite signs for a pure Y rotation: a positive quarter-turn maps `[1,0,0]` to `[0,0,1]` in legacy transfer and to `[0,0,-1]` in browser manual rotation. Clockwise/counterclockwise descriptions require a specified viewpoint.
+
+The calculation below explains the transfer's anchor, height offset, and orientation-vector treatment. The axes material from `Axes_Explained.md` is incorporated here and in the workflow explanations; that standalone reference is retained.
 
 ## How alignment works and its limits
 
@@ -147,7 +227,7 @@ The two-object measurement yields an alignment for this source–destination pai
 
 ### Browser and 3D limits
 
-The viewer displays object positions and orientation arrows, not meshes or terrain. A rigid correction cannot repair uneven terrain changes. Large builds can swing a long way around the reference; inspect the largest-movement summary and check the result in-game. Automated tests cover synthetic geometry and browser behavior; real exports and game behavior still need in-game validation.
+The viewer displays object positions and orientation arrows, not meshes or terrain. A single rigid correction cannot repair multiple areas requiring different movements. Use selective mode for one affected area at a time, and inspect seams and connections between moved and fixed pieces. Large builds can swing a long way around the reference; inspect the largest-movement summary and check the result in-game. Automated tests cover synthetic geometry and browser behavior; real exports and game behavior still need in-game validation.
 
 One corrected position alone cannot determine rotation and translation uniquely. The 3D repair workflow works with one part because it also uses that part's orientation.
 
@@ -155,7 +235,10 @@ One corrected position alone cannot determine rotation and translation uniquely.
 
 ```text
 py -m unittest -v test_alignment_3d
+node test_editor_logic.cjs
 node test_editor.cjs
 ```
 
-The browser smoke test uses a local Windows Chrome installation and Node 22+ with no npm dependencies. It creates synthetic fixtures and a temporary browser profile under the system temporary directory. It checks the real generated page, correction, manual edits, undo, reset, and download.
+The browser smoke test uses a local Windows Chrome installation and Node 22+ with no npm dependencies. It creates synthetic fixtures and a temporary browser profile under the system temporary directory. It checks the real generated page, single-file generation, After-file loading, measured translation options, rotation, manual edits, undo/reset, download, rectangle/circle selection, camera-stable membership, and scope toggling. Set the `PYTHON` environment variable to the Python executable if `py` is unavailable.
+
+The Node logic regressions cover selective scope, empty-selection/export guards, unselected geometry, electrical and teleporter endpoints, crossing connections under rotation, and unresolved attachments, alongside existing alignment behavior. The Python suite covers generation, calibration, identity validation, and geometry. These synthetic tests do not replace in-game validation.

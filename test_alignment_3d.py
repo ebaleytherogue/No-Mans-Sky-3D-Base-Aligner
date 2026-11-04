@@ -137,6 +137,43 @@ class AlignmentTests(unittest.TestCase):
             with patch('sys.argv', ['tool', str(source), '-o', str(source)]):
                 with self.assertRaises(SystemExit): a.main()
 
+    def test_moved_wiring_is_ignored_and_transformed_from_before(self):
+        b, c, rotate = self.corrected()
+        wires = [part('^U_POWERLINE', [10, 20, 30]), part('^U_POWERLINE', [-4, 8, 12])]
+        for wire in wires:
+            wire['Up'] = [1, 2, 3]
+            wire['At'] = [4, 5, 6]  # Wiring need not have a regular orientation frame.
+        b['Objects'].extend(copy.deepcopy(wires))
+        c['Objects'].extend(copy.deepcopy(wires))
+        c['Objects'][4]['Position'] = [999, 888, 777]
+        c['Objects'][4]['At'] = [9, 9, 9]
+        c['Objects'][4]['UserData'] = {'latest': True}
+        c['Objects'].reverse()
+        self.assertEqual(a.reference_pairs(b, c), [(1, 4)])
+        self.assertEqual(a.reference_pairs(b, c, '1:4'), [(1, 4)])
+        out = a.align(b, c, (1, 4))
+        for i, j in a.wiring_pairs(b, c).items():
+            original, result = b['Objects'][i], out['Objects'][j]
+            self.assertVector(result['Position'], [x+d for x,d in zip(rotate(original['Position']), [5,-7,11])])
+            for field in ('Up', 'At'):
+                self.assertVector(result[field], rotate(original[field]))
+            self.assertEqual(result['UserData'], c['Objects'][j]['UserData'])
+        self.assertEqual(a.flag(out), a.flag(b))
+        with self.assertRaises(a.AlignmentError):
+            a.reference_pairs(b, c, '4:1')
+        c['Objects'][3]['Position'][0] += 1
+        with self.assertRaises(a.AlignmentError):
+            a.reference_pairs(b, c)
+
+    def test_wire_only_changes_and_part_counts(self):
+        b = fixture(); b['Objects'].append(part('^U_POWERLINE', [1, 2, 3]))
+        c = copy.deepcopy(b); c['Objects'][-1]['Position'][0] += 4
+        self.assertEqual(len(a.reference_pairs(b, c)), 3)
+        self.assertEqual(a.align(b, c, (1, 1)), b)
+        c['Objects'].append(part('^U_POWERLINE', [3, 4, 5]))
+        with self.assertRaises(a.AlignmentError):
+            a.reference_pairs(b, c)
+
     def test_missing_editor_template_explains_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

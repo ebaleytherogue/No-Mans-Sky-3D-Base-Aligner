@@ -59,12 +59,41 @@ def geometry_equal(a, b):
         for x, y in zip(a[key], b[key]))
 
 
+# Electrical wire geometry can change when a powered reference is moved.
+WIRE_IDS = frozenset({'^U_POWERLINE', '^U_PORTALLINE'})
+
+
+def is_wiring(obj):
+    return obj['ObjectID'] in WIRE_IDS
+
+
+def wiring_pairs(before, after):
+    remaining = {j for j, obj in enumerate(after['Objects']) if is_wiring(obj)}
+    pairs = {}
+    # Preserve exact matches first; pair remaining wires by ID/export order.
+    for i, obj in enumerate(before['Objects']):
+        if not is_wiring(obj):
+            continue
+        j = next((j for j in sorted(remaining) if geometry_equal(obj, after['Objects'][j])), None)
+        if j is not None:
+            pairs[i] = j
+            remaining.remove(j)
+    for i, obj in enumerate(before['Objects']):
+        if is_wiring(obj) and i not in pairs:
+            j = next(j for j in sorted(remaining) if obj['ObjectID'] == after['Objects'][j]['ObjectID'])
+            pairs[i] = j
+            remaining.remove(j)
+    return pairs
+
+
 def reference_pairs(before, after, selector=None):
     validate(before, after)
     old, new = before['Objects'], after['Objects']
-    remaining = set(range(len(new)))
-    matches = {}
+    matches = wiring_pairs(before, after)
+    remaining = set(range(len(new))) - set(matches.values())
     for i, obj in enumerate(old):
+        if i in matches:
+            continue
         options = [j for j in sorted(remaining) if geometry_equal(obj, new[j])]
         if options:
             j = options[0]
@@ -91,15 +120,15 @@ def reference_pairs(before, after, selector=None):
     elif len(unmatched) == len(remaining) == 1:
         candidates = [(unmatched[0], next(iter(remaining)))]
     elif not changed:
-        candidates = [(i, j) for i, j in matches.items() if old[i]['ObjectID'] != FLAG]
+        candidates = [(i, j) for i, j in matches.items() if old[i]['ObjectID'] != FLAG and not is_wiring(old[i])]
     else:
         raise AlignmentError('More than one part changed. Export again after adjusting only the reference part.')
     valid = []
     for i, j in candidates:
         a, b = old[i], new[j]
-        if a['ObjectID'] == FLAG or a['ObjectID'] != b['ObjectID']:
+        if a['ObjectID'] == FLAG or is_wiring(a) or a['ObjectID'] != b['ObjectID']:
             if selector:
-                raise AlignmentError('Reference must identify the same non-computer part in both exports.')
+                raise AlignmentError('Reference must identify the same non-computer, non-wiring part in both exports.')
             continue
         if not changed and not geometry_equal(a, b):
             raise AlignmentError('Reference indices do not match the same unchanged part.')
@@ -125,6 +154,10 @@ def align(before, after, pair, axes=(True, True, True), apply_rotation=True):
     r = rotation(a, b) if apply_rotation and not same_orientation else None
     shift = [(y-x) if enabled else 0 for x, y, enabled in zip(a['Position'], b['Position'], axes)]
     result = copy.deepcopy(after)
+    # Ignore After wire movement: transform the original wiring exactly once.
+    for old_index, new_index in wiring_pairs(before, after).items():
+        for field in ('Position', 'Up', 'At'):
+            result['Objects'][new_index][field] = copy.deepcopy(before['Objects'][old_index][field])
     for index, obj in enumerate(result['Objects']):
         if obj['ObjectID'] == FLAG or index == j:
             continue
@@ -176,3 +209,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

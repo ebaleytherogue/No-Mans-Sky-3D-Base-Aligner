@@ -52,6 +52,18 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spa
  for(let n=0;n<100;n++){if(await evaluate("!$('apply').disabled"))break;await new Promise(r=>setTimeout(r,100))}
  assert.equal(await evaluate("$('apply').disabled"),false);assert.equal(await evaluate('calibrationIndex'),1);const uploaded=await evaluate('result()');uploaded.Objects.forEach((o,i)=>o.Position.forEach((v,k)=>assert.ok(Math.abs(v-preUpload.Objects[i].Position[k])<1e-9)));
  await evaluate("$('apply').click()");assert.equal(await evaluate("Number($('rz').value)"),9);
+ await evaluate("$('reset').click();$('selective').click()");
+ assert.equal(await evaluate("$('download').disabled"),true);
+ for(const shape of ['rectangle','circle']){
+ await evaluate(`$('shape').value='${shape}';$('selectionAction').value='replace';$('mode').value='select';canvas.setPointerCapture=()=>{};(()=>{const p=project(DATA.before.Objects[1].Position),b=canvas.getBoundingClientRect();canvas.onpointerdown({pointerId:1,button:0,clientX:b.left+p[0]-2,clientY:b.top+p[1]-2});canvas.onpointermove({clientX:b.left+p[0]+2,clientY:b.top+p[1]+2});canvas.onpointerup({clientX:b.left+p[0]+2,clientY:b.top+p[1]+2})})()`);
+ assert.equal(await evaluate('members.has(1)'),true);
+ }
+ await evaluate("$('ty').value=4;draw()");
+ assert.deepEqual((await evaluate('result()')).Objects[2],before.Objects[2]);
+ await evaluate("$('top').click();$('front').click();$('side').click()");assert.equal(await evaluate('members.has(1)'),true);
+ await evaluate("$('selective').click()");assert.equal(await evaluate('scope'),false);
+ console.log('Browser selective checks passed: rectangle, circle, stable selection across camera views, scope toggle.');
+
  await evaluate("document.querySelector('aside').scrollTop=0");const screenshot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(tmp,'preview.png'),Buffer.from(screenshot.data,'base64'));
  console.log('Browser checks passed: single-file mode, After upload, detection, all axis combinations, Z export, idempotent alignment, fixed computer, metadata, undo/reset, drag.');console.log('Screenshot: '+path.join(tmp,'preview.png'));
  }finally{if(ws)ws.close();chrome.kill()}
