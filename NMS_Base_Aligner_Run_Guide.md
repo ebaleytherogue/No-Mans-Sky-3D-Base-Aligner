@@ -1,4 +1,4 @@
-# NMS Base Aligner Run Guide
+# No-Mans-Sky-3D-Base-Aligner Run Guide
 
 ## Requirements and shared precautions
 
