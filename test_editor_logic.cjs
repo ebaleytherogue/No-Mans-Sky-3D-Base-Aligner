@@ -36,7 +36,10 @@ const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(
  const wireOnly=structuredClone(wired);wireOnly.Objects[4].Position[0]+=3;t=load(wired,wireOnly);assert.equal(t.els.apply.disabled,true);assert.deepEqual(json(t.e('result()')),wired);
  t=load(wired);t.els.afterFile.files=[{text:async()=>JSON.stringify(wireAfter)}];await t.els.afterFile.onchange();assert.equal(t.e('calibrationIndex'),1);t.e("$('apply').onclick()");near(t.e('result().Objects[4].Position'),wireOut.Objects[4].Position);
  const badWired=structuredClone(wireAfter);badWired.Objects[3].Position[0]+=2;assert.throws(()=>load(wired,badWired),/Multiple parts/);
- const addedWire=structuredClone(wireAfter);addedWire.Objects.push(part('^U_POWERLINE',[0,0,0]));assert.throws(()=>load(wired,addedWire),/added or deleted/);
+ const addedWire=structuredClone(wireAfter);addedWire.Objects.push(part('^U_POWERLINE',[0,0,0]));t=load(wired,addedWire);assert.equal(t.e('calibrationIndex'),1);t.e("$('apply').onclick()");assert.deepEqual(json(t.e('result()')),wireOut);
+ const removedWires=structuredClone(wireAfter);removedWires.Objects=removedWires.Objects.filter(o=>o.ObjectID!=='^U_POWERLINE');t=load(wired,removedWires);assert.equal(t.e('calibrationIndex'),1);t.e("$('apply').onclick()");near(t.e('result().Objects[4].Position'),wireOut.Objects[4].Position);assert.equal(t.e('result().Objects.length'),wired.Objects.length);
+ // Optional private reproduction: never require or embed the user's exports.
+ if(fs.existsSync('Before.nmsbase')&&fs.existsSync('After.nmsbase')){const original=JSON.parse(fs.readFileSync('Before.nmsbase')),latest=JSON.parse(fs.readFileSync('After.nmsbase'));t=load(original,latest);assert.equal(t.e('DATA.before.Objects[calibrationIndex].ObjectID'),'^U_MINIPORTAL');t.e("$('apply').onclick()");assert.equal(t.e('result().Objects.length'),original.Objects.length);near(t.e('result().Objects[calibrationIndex].Position'),latest.Objects[0].Position);console.log('Private Before/After reproduction passed.');}
 
  // Selective mode must preserve all unselected geometry and fixed computer.
  t=load(fixture());t.e("$('selective').checked=true;changeScope()");assert.equal(t.els.download.disabled,true);

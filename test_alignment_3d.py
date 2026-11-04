@@ -1,4 +1,5 @@
 import copy
+from collections import Counter
 import contextlib
 import io
 import json
@@ -171,8 +172,25 @@ class AlignmentTests(unittest.TestCase):
         self.assertEqual(len(a.reference_pairs(b, c)), 3)
         self.assertEqual(a.align(b, c, (1, 1)), b)
         c['Objects'].append(part('^U_POWERLINE', [3, 4, 5]))
-        with self.assertRaises(a.AlignmentError):
-            a.reference_pairs(b, c)
+        self.assertEqual(len(a.reference_pairs(b, c)), 3)
+        self.assertEqual(a.align(b, c, (1, 1)), b)
+        c['Objects'] = [o for o in c['Objects'] if not a.is_wiring(o)]
+        self.assertEqual(len(a.reference_pairs(b, c)), 3)
+        self.assertEqual(a.align(b, c, (1, 1)), b)
+
+    def test_missing_wire_before_reordered_reference(self):
+        b, c, rotate = self.corrected()
+        b['Objects'].insert(0, part('^U_PORTALLINE', [10, 20, 30]))
+        c['Objects'].append(part('^U_POWERLINE', [99, 88, 77]))
+        c['Objects'].reverse()
+        pair = a.reference_pairs(b, c)[0]
+        self.assertEqual(pair, (2, 3))
+        out = a.align(b, c, pair)
+        self.assertEqual(Counter(o['ObjectID'] for o in out['Objects']),
+                         Counter(o['ObjectID'] for o in b['Objects']))
+        wire = next(o for o in out['Objects'] if a.is_wiring(o))
+        self.assertVector(wire['Position'], [v+d for v,d in zip(rotate([10,20,30]), [5,-7,11])])
+        self.assertEqual(next(o for o in out['Objects'] if o['ObjectID'] == '^FLOOR' and o == c['Objects'][3]), c['Objects'][3])
 
     def test_missing_editor_template_explains_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:

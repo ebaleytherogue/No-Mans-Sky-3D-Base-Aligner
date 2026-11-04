@@ -92,7 +92,7 @@ The part must have usable, perpendicular Up/At vectors and unchanged scale. Wiri
 py nms_base_align.py 3d "Before.nmsbase" "After.nmsbase" -o "Preview.html"
 ```
 
-The app identifies the one changed non-wiring part, including an orientation-only change and a repeated part ID. It rejects changed base identity/location, added or deleted parts, multiple meaningful non-wiring geometry changes, reference resizing, and changes to the Base Computer. Incidental electrical or miniportal wire movement does not become a calibration reference: original wire geometry is used so it is not moved twice. Unrelated non-geometric object-property changes are retained from After; the browser reports these separately.
+The app identifies the one changed non-wiring part, including an orientation-only change and a repeated part ID. It rejects changed base identity/location, added or deleted non-wiring parts, multiple meaningful non-wiring geometry changes, reference resizing, and changes to the Base Computer. Incidental electrical or miniportal wire movement does not become a calibration reference: original wire geometry and segment counts are used so wiring is not moved twice. Wire segments removed or rebuilt in After do not prevent calibration; original Before segments are retained, and After-only segments are omitted. Unrelated non-geometric object-property changes are retained from After; the browser reports these separately.
 
 If `Preview.html` already exists, choose another output name or add `--overwrite`. Never use the template filename `nms_base_editor.html` as your generated output. Regenerate the page after updating the scripts/template; older generated pages contain their own earlier editor code.
 
