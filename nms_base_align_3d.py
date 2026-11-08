@@ -3,6 +3,7 @@ import argparse
 import copy
 import json
 import math
+import sys
 from collections import Counter
 from pathlib import Path
 from nms_base_align import AlignmentError, FLAG, read_base, flag
@@ -181,6 +182,60 @@ def align(before, after, pair, axes=(True, True, True), apply_rotation=True):
     return result
 
 
+def read_model_json(path):
+    with path.open('rb') as stream:
+        data = stream.read(512_001)
+    if len(data) > 512_000:
+        raise ValueError('Model pack file exceeds size limit.')
+    return json.loads(data)
+
+
+def load_models(root, objects):
+    try:
+        manifest = read_model_json(root / 'manifest.json')
+    except (OSError, ValueError, RecursionError):
+        return {}
+    if not isinstance(manifest, dict) or type(manifest.get('schema')) is not int or manifest['schema'] != 1:
+        return {}
+    entries = manifest.get('parts')
+    if not isinstance(entries, dict):
+        return {}
+    models = {}
+    remaining_vertices = 100_000
+    remaining_indices = 300_000
+    for part_id in dict.fromkeys(obj['ObjectID'].removeprefix('^') for obj in objects):
+        relative = entries.get(part_id)
+        if not isinstance(relative, str):
+            continue
+        try:
+            path = Path(relative)
+            if path.anchor or '..' in path.parts or path.suffix.lower() != '.json':
+                continue
+            target = (root / path).resolve()
+            if not target.is_relative_to(root.resolve()):
+                continue
+            mesh = read_model_json(target)
+        except (OSError, ValueError, RuntimeError):
+            continue
+        if not isinstance(mesh, dict):
+            continue
+        vertices, indices = mesh.get('vertices'), mesh.get('indices')
+        if not isinstance(vertices, list) or not 3 <= len(vertices) <= min(2048, remaining_vertices):
+            continue
+        if not all(isinstance(v, list) and len(v) == 3 and
+                   all(type(x) in (int, float) and -100_000 <= x <= 100_000 for x in v)
+                   for v in vertices):
+            continue
+        if (not isinstance(indices, list) or not 3 <= len(indices) <= min(6144, remaining_indices)
+                or len(indices) % 3
+                or not all(type(i) is int and 0 <= i < len(vertices) for i in indices)):
+            continue
+        models[part_id] = {'vertices': vertices, 'indices': indices}
+        remaining_vertices -= len(vertices)
+        remaining_indices -= len(indices)
+    return models
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('before', type=Path)
@@ -199,7 +254,10 @@ def main():
             raise AlignmentError('Output must not replace an input.')
         if args.output.exists() and not args.overwrite:
             raise AlignmentError('Output exists; choose another name or use --overwrite.')
-        payload = json.dumps({'before': before, 'after': after if args.after else None, 'pairs': pairs}, allow_nan=False).replace('<', '\\u003c').replace('&', '\\u0026')
+        app_dir = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
+        models = load_models(app_dir / 'models', before['Objects'])
+        payload = json.dumps({'before': before, 'after': after if args.after else None,
+                              'pairs': pairs, 'models': models}, allow_nan=False).replace('<', '\\u003c').replace('&', '\\u0026')
         template_path = Path(__file__).with_name('nms_base_editor.html')
         try:
             template = template_path.read_text(encoding='utf-8')

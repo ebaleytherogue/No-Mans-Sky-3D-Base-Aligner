@@ -24,6 +24,8 @@
 <details><summary>Connection attachments</summary><p>Sockets are matched from the Before file. Endpoints follow their original objects. Existing free ends and unattached wire junctions stay fixed during selective alignment. Only ambiguous attachments require review.</p><div id="attachments"></div></details>
 </div></fieldset>
 <label>Drag action <select id="mode"><option value="select">Select pieces</option><option value="orbit" selected>Orbit camera</option><option value="pan">Pan camera</option><option value="rotate">Rotate base on selected axis</option><option value="move">Move base on selected axis</option></select></label>
+<button id="resetView" type="button">Reset View</button>
+<label>Display <select id="display"><option value="points">Points</option><option id="shapesMode" value="shapes" disabled>Shapes</option></select></label>
 <label>Adjustment axis <select id="axis"><option value="0">X · pitch</option><option value="1">Y · yaw</option><option value="2">Z · roll</option></select></label>
 <small>Drag to adjust. Scroll to zoom. Click a visible original part to select an eligible reference. Right-drag pans.</small>
 <label>Rotation about reference (degrees)</label><div class="row"><label>X <input id="rx" type="number" step="0.1" value="0"></label><label>Y <input id="ry" type="number" step="0.1" value="0"></label><label>Z <input id="rz" type="number" step="0.1" value="0"></label></div>
@@ -322,9 +324,50 @@ function stepMatch(step){
  list.value=String(matches[(index+step+matches.length)%matches.length][0]);
  focusFrom('partMatches');
 }
+function appendModelFaces(faces,o,color){
+ const id=partType(o), models=DATA.models;
+ if(!models||!Object.hasOwn(models,id))return;
+ const mesh=models[id];
+ if(faces.length+mesh.indices.length/3>65000)return;
+ const scale=Math.hypot(...o.Up);
+ let basis;
+ try{basis=frame(o)}catch{return}
+ const projected=mesh.vertices.map(vertex=>project(o.Position.map((position,axis)=>
+  position+scale*(vertex[0]*basis[0][axis]+vertex[1]*basis[1][axis]+vertex[2]*basis[2][axis])
+ )));
+ if(projected.some(p=>!p.every(Number.isFinite)))return;
+ for(let i=0;i<mesh.indices.length;i+=3){
+  const [a,b,c]=[projected[mesh.indices[i]],projected[mesh.indices[i+1]],projected[mesh.indices[i+2]]];
+  const ab=sub(b,a),ac=sub(c,a);
+  const normal=cross([ab[0],ab[1],ab[2]*camera.zoom],[ac[0],ac[1],ac[2]*camera.zoom]);
+  const area=Math.abs(normal[2]);
+  if(area<1)continue;
+  faces.push({a,b,c,color,depth:(a[2]+b[2]+c[2])/3,opacity:.45+.35*area/Math.hypot(...normal)});
+ }
+}
 function draw(){try{const out=result(),w=canvas.clientWidth,h=canvas.clientHeight,dpr=window.devicePixelRatio||1;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);points=[];const [refOld,refNew]=pair();
-function layer(objects,original){objects.map((o,i)=>({o,i,p:project(o.Position)})).filter(({o})=>visiblePart(o)).sort((a,b)=>a.p[2]-b.p[2]).forEach(({o,i,p})=>{const fixed=o.ObjectID===FLAG,ref=i===(original?refOld:(applied?refNew:refOld));ctx.fillStyle=scope&&!fixed?(members.has(i)?'#ffe075':'#64738166'):fixed?'#ffb454':ref?'#64e6a3':original?'#8a97a780':'#55b5ff';ctx.beginPath();ctx.arc(p[0],p[1],fixed||ref?6:3,0,Math.PI*2);ctx.fill();if(original)points.push({i,x:p[0],y:p[1]})})}
-if($('original').checked)layer(DATA.before.Objects,true);if($('proposed').checked){layer(out.Objects,false);const o=out.Objects[applied?refNew:refOld],f=frame(o),n=span*.09;if(visiblePart(o))f.forEach((v,i)=>line(o.Position,add(o.Position,v.map(x=>x*n)),['#ff7777','#64e6a3','#55b5ff'][i],3))}
+const layers=[];
+if($('original').checked)layers.push([DATA.before.Objects,true]);
+if($('proposed').checked)layers.push([out.Objects,false]);
+const markers=[], faces=[];
+for(const [objects,original] of layers){
+ for(const {o,i,p} of objects.map((o,i)=>({o,i,p:project(o.Position)})).filter(({o})=>visiblePart(o)).sort((a,b)=>a.p[2]-b.p[2])){
+  const fixed=o.ObjectID===FLAG,ref=i===(original?refOld:(applied?refNew:refOld));
+  const color=scope&&!fixed?(members.has(i)?'#ffe075':'#64738166'):fixed?'#ffb454':ref?'#64e6a3':original?'#8a97a780':'#55b5ff';
+  markers.push({p,color,radius:fixed||ref?6:3});
+  if(original)points.push({i,x:p[0],y:p[1]});
+  if($('display').value==='shapes'&&!isWiring(o))appendModelFaces(faces,o,color);
+ }
+}
+for(const {a,b,c,color,opacity} of faces.sort((a,b)=>a.depth-b.depth)){
+ ctx.fillStyle=color;ctx.globalAlpha=opacity;ctx.beginPath();
+ ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();ctx.fill();
+}
+ctx.globalAlpha=1;
+for(const {p,color,radius} of markers){
+ ctx.fillStyle=color;ctx.beginPath();ctx.arc(p[0],p[1],radius,0,Math.PI*2);ctx.fill();
+}
+if($('proposed').checked){const o=out.Objects[applied?refNew:refOld],f=frame(o),n=span*.09;if(visiblePart(o))f.forEach((v,i)=>line(o.Position,add(o.Position,v.map(x=>x*n)),['#ff7777','#64e6a3','#55b5ff'][i],3))}
 if(scope){wireNodes.forEach(([a,b],i)=>{const o=out.Objects[i];if(!visiblePart(o))return;line(o.Position,wireEnd(o),bindings[a]==='unresolved'||bindings[b]==='unresolved'?'#ff6677':(endpointMoves(a)!==endpointMoves(b)?'#dc8aff':'#7c9eaf'),2)})}
 updatePartTools(out);
 if(drag?.mode==='select'){ctx.strokeStyle='#ffe075';ctx.lineWidth=2;ctx.beginPath();const x=drag.localX,y=drag.localY,dx=drag.x-drag.startX,dy=drag.y-drag.startY;if($('shape').value==='circle')ctx.arc(x,y,Math.hypot(dx,dy),0,Math.PI*2);else ctx.rect(x,y,dx,dy);ctx.stroke()}
@@ -345,7 +388,8 @@ $('afterFile').onchange=async()=>{try{const file=$('afterFile').files[0];if(!fil
 fields.forEach(id=>{$(id).oninput=()=>{history.push({...snapshot(),values:[...lastValues]});if(history.length>100)history.shift();draw()}});
 $('undo').onclick=()=>{const s=history.pop();if(!s)return;scope=s.scope;members=new Set(s.members);bindings=s.bindings;$('selective').checked=scope;buildConnections();selected=s.selected;applied=s.applied;baseline=s.baseline;pivot=s.pivot;Object.assign(DATA,s.data);detection=s.detection;calibrationIndex=s.calibrationIndex;appliedOptions=s.appliedOptions;setOptions(s.options);setValues(s.values);populate();choose();draw()};
 $('reset').onclick=()=>{remember();applied=false;appliedOptions=null;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
-['original','proposed','mode','axis'].forEach(id=>$(id).onchange=draw);
+if(DATA.models&&Object.keys(DATA.models).length)$('shapesMode').disabled=false;
+['original','proposed','mode','axis','display'].forEach(id=>$(id).onchange=draw);
 $('fit').onclick=fit;['top','front','side'].forEach((id,i)=>$(id).onclick=()=>{camera.yaw=[0,0,Math.PI/2][i];camera.pitch=[Math.PI/2,0,0][i];draw()});
 canvas.oncontextmenu=e=>e.preventDefault();canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);const mode=e.button===2?'pan':$('mode').value;drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,mode,v:values(),localX:e.clientX-canvas.getBoundingClientRect().left,localY:e.clientY-canvas.getBoundingClientRect().top};if(mode==='rotate'||mode==='move')remember()};
 canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(drag.mode==='select'){draw();return}else if(drag.mode==='orbit'){camera.yaw+=dx*.008;camera.pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,camera.pitch+dy*.008))}else if(drag.mode==='pan'){camera.pan[0]+=dx;camera.pan[1]+=dy}else{const v=[...drag.v],k=Number($('axis').value)+(drag.mode==='move'?3:0);v[k]+=(e.clientX-drag.startX-e.clientY+drag.startY)*(drag.mode==='move'?1/camera.zoom:.3);setValues(v)}draw()};
@@ -356,7 +400,17 @@ canvas.onpointerup=e=>{if(!drag)return;if(drag.mode==='select'&&scope){
  if(click)hits=pts.map(p=>({...p,d:Math.hypot(p.p[0]-x,p.p[1]-y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d).slice(0,1);
  const action=$('selectionAction').value,next=action==='replace'?new Set():new Set(members);hits.forEach(({i})=>action==='remove'?next.delete(i):next.add(i));drag=null;changeMembers(next);return;
  }if(drag.mode==='orbit'&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const hits=points.map(p=>({...p,d:Math.hypot(x-p.x,y-p.y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d);const hit=hits.find(p=>DATA.pairs.some(pair=>pair[0]===p.i));if(hit)select(DATA.pairs.findIndex(pair=>pair[0]===hit.i))}drag=null};canvas.onpointercancel=()=>drag=null;
-canvas.onwheel=e=>{e.preventDefault();camera.zoom=Math.max(.0001,Math.min(1e6,camera.zoom*Math.exp(-e.deltaY*.001)));draw()};
+canvas.onwheel=e=>{
+ e.preventDefault();
+ const rect=canvas.getBoundingClientRect();
+ const pointer=[e.clientX-rect.left,e.clientY-rect.top];
+ const center=[canvas.clientWidth/2,canvas.clientHeight/2];
+ const oldZoom=camera.zoom;
+ camera.zoom=Math.max(.0001,Math.min(1e6,oldZoom*Math.exp(-e.deltaY*.001)));
+ const ratio=camera.zoom/oldZoom;
+ camera.pan=camera.pan.map((pan,i)=>pan+(pointer[i]-center[i]-pan)*(1-ratio));
+ draw();
+};
 $('download').onclick=()=>{try{const out=result();if(scope&&(!members.size||connectionReport.unresolved))throw Error('Select pieces and resolve all connection attachments before export.');if(out.Objects.some(o=>['Position','Up','At'].some(k=>!o[k].every(Number.isFinite))))throw Error('Adjustment is too large. Enter smaller values.');const blob=new Blob([JSON.stringify(out,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Adjusted Base.nmsbase';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('status').textContent=e.message}};
 $('partQuery').value='';
  $('partQuery').oninput=draw;
@@ -371,4 +425,9 @@ $('partQuery').value='';
  $('mode').value='orbit';
  $('selective').onchange=changeScope;$('clearSelection').onclick=()=>changeMembers(new Set());
 window.addEventListener('resize',draw);initialize(DATA.after,true);buildConnections();fit();
+const openingCamera=clone(camera);
+$('resetView').onclick=()=>{
+ camera=clone(openingCamera);
+ draw();
+};
 </script></html>
