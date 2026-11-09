@@ -49,7 +49,7 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spa
  assert.equal(await evaluate("$('apply').disabled"),true);assert.deepEqual((await evaluate('result()')).Objects,before.Objects);
  await evaluate("$('rz').value=9;$('rz').dispatchEvent(new Event('input'))");const preUpload=await evaluate('result()');
  const doc=await send('DOM.getDocument');const input=await send('DOM.querySelector',{nodeId:doc.root.nodeId,selector:'#afterFile'});await send('DOM.setFileInputFiles',{nodeId:input.nodeId,files:[path.join(tmp,'after.nmsbase')]});
- for(let n=0;n<100;n++){if(await evaluate("!$('apply').disabled"))break;await new Promise(r=>setTimeout(r,100))}
+ for(let n=0;n<100;n++){if(await evaluate("DATA.after!==null"))break;await new Promise(r=>setTimeout(r,100))}
  assert.equal(await evaluate("$('apply').disabled"),false);assert.equal(await evaluate('calibrationIndex'),1);const uploaded=await evaluate('result()');uploaded.Objects.forEach((o,i)=>o.Position.forEach((v,k)=>assert.ok(Math.abs(v-preUpload.Objects[i].Position[k])<1e-9)));
  await evaluate("$('apply').click()");assert.equal(await evaluate("Number($('rz').value)"),9);
  await evaluate("$('reset').click();$('selective').click()");

@@ -92,7 +92,7 @@ The part must have usable, perpendicular Up/At vectors and unchanged scale. Wiri
 py nms_base_align.py 3d "Before.nmsbase" "After.nmsbase" -o "Preview.html"
 ```
 
-The app identifies the one changed non-wiring part, including an orientation-only change and a repeated part ID. It rejects changed base identity/location, added or deleted non-wiring parts, multiple meaningful non-wiring geometry changes, reference resizing, and changes to the Base Computer. Incidental electrical or miniportal wire movement does not become a calibration reference: original wire geometry and segment counts are used so wiring is not moved twice. Wire segments removed or rebuilt in After do not prevent calibration; original Before segments are retained, and After-only segments are omitted. Unrelated non-geometric object-property changes are retained from After; the browser reports these separately.
+The app identifies the one changed non-wiring part, including an orientation-only change and a repeated part ID. It rejects changed base identity/location, added or deleted non-wiring parts, multiple meaningful non-wiring geometry changes, reference resizing, and changes to the Base Computer. Incidental movement of electrical wires, teleporter cables, or supply pipes does not become a calibration reference: original wire geometry and segment counts are used so wiring is not moved twice. Wire segments removed or rebuilt in After do not prevent calibration; original Before segments are retained, and After-only segments are omitted. Unrelated non-geometric object-property changes are retained from After; the browser reports these separately.
 
 If `Preview.html` already exists, choose another output name or add `--overwrite`. Never use the template filename `nms_base_editor.html` as your generated output. Regenerate the page after updating the scripts/template; older generated pages contain their own earlier editor code.
 
@@ -110,7 +110,9 @@ For manual adjustment without in-game calibration, supply one export:
 py nms_base_align.py 3d "Before.nmsbase" -o "Preview.html"
 ```
 
-Supplying the same export twice remains supported, but is unnecessary. Open Preview.html and choose a manual rotation pivot from the dropdown or click an eligible original point. Entries include object indices so repeated IDs can be distinguished. Electrical and miniportal wires and the Base Computer are excluded from pivot choices.
+Supplying the same export twice remains supported, but is unnecessary. Open Preview.html and choose a manual rotation pivot from the dropdown or click an eligible original point. Entries include object indices so repeated IDs can be distinguished. Electrical wires, short-range teleporter cables, supply pipes, and the Base Computer are excluded from pivot choices.
+
+In single-file mode, enter exact values under **Rotation about reference (degrees)** and **Movement in local game units**. The proposed layout updates as you edit. Click **Apply Measured Movement** to commit the preview and clear the adjustment fields for the next move. Use [Selective Alignment](#selective-alignment) to move specific pieces. With an empty selection, the movement applies to the whole base, with the Base Computer fixed.
 
 ### Browser controls and export
 
@@ -126,30 +128,30 @@ Inspect original gray and proposed blue points, the green reference, orange fixe
 
 Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pan. Top, Front, Side, and Fit control the camera only. Select **Rotate base on selected axis** or **Move base on selected axis**, choose X/Y/Z, then drag. Colored axis handles indicate the selected local axis. Numeric fields allow exact values. Manual rotation uses fixed local X, then Y, then Z axes about the manual pivot, followed by translation. Changing the pivot preserves the proposed layout instead of clearing adjustments.
 
-**Undo** restores earlier edits, including scope, selection, and connection assignments. **Reset to original** removes measured and manual corrections while retaining the current selection and connection assignments. Latest After metadata is retained; Reset is a geometry reset, not a return to Before metadata.
+**Undo** restores earlier edits, including applied movements, scope, selection, and connection assignments. **Redo** reapplies an undone edit. **Reset to original** removes measured and manual corrections and keeps the current selection. In single-file mode, Reset recalculates attachments from the original geometry. In two-file mode, Reset retains the connection assignments and latest After metadata.
 
-**Download adjusted .nmsbase** creates `Adjusted Base.nmsbase` in the browser's download location. Base metadata and non-geometric object properties come from the latest export. The Base Computer is never transformed. Ordinary construction orientation vectors rotate without changing length. Selective wires can change length/direction to preserve their original socket attachments while existing free endpoints remain fixed.
+**Download adjusted .nmsbase** creates `Adjusted Base.nmsbase` in the browser's download location. Base metadata and non-geometric object properties come from the latest export. The Base Computer is never transformed. Ordinary construction orientation vectors rotate without changing length. Connections in a selective move can change length and direction to preserve their original socket attachments while existing free endpoints remain fixed.
 
-Back up the save, close the game, and import the downloaded file into the same base with NMSE. Check placement, electrical power, and miniportal links in-game before saving. **Existing-base repair and manual editing do not require restoring a computer-only save.** Do not use the transfer workflow's restoration step for an existing-base repair.
+Back up the save, close the game, and import the downloaded file into the same base with NMSE. Check placement, electrical power, short-range teleporter links, and supply flow in-game before saving. **Existing-base repair and manual editing do not require restoring a computer-only save.** Do not use the transfer workflow's restoration step for an existing-base repair.
 
 ### Selective Alignment
 
 Leave **Enable Selective Alignment** unchecked to move the whole construction using the existing rules, with the Base Computer fixed. Enable it when only an affected area needs correction.
 
-1. Check **Enable Selective Alignment**. The drag action switches to **Select pieces**.
+1. Check **Enable Selective Alignment**, then choose **Select pieces** under **Drag action**.
 2. Choose **Rectangle** or **Circle** and **Replace**, **Add**, or **Remove**. Draw around original object positions; the circle grows outward from the drag's starting point. A click picks the nearest eligible original point within the click tolerance.
-3. Inspect the yellow selection and selected-piece count. Use Add/Remove and individual clicks to refine it, or **Clear selection** to start again. The Base Computer and wire objects are not directly selectable.
+3. Inspect the yellow selection and selected-piece count. Use Add/Remove and individual clicks to refine it, or **Clear selection** to start again. Only eligible construction pieces can be selected. The Base Computer, wires, teleporter cables, and supply pipes are excluded.
 4. Check Top, Front, and Side views for overlapping objects. Shapes select through all depths; there is no depth/height filter. Membership stays attached to object indices when the camera or preview changes. Enable **Show original** to see the points used for selection.
-5. Apply the measured correction and/or make manual adjustments. Only selected construction pieces move; unselected construction geometry stays fixed. A manual pivot may be outside the selection.
+5. Enter manual adjustments, then click **Apply Measured Movement** in single-file mode. In two-file mode, use **Align rest of base to corrected reference** to apply the correction from the two exports. Only selected construction pieces move. A manual pivot may be outside the selection.
 6. Inspect the connection summary and preview, review any ambiguous attachments as described below, then download. Supported socket attachments are automatic; existing free ends do not require a choice.
 
-With selective mode enabled and no pieces selected, alignment application and export are disabled. Unchecking the checkbox restores whole-base scope while retaining the selection for later use. Scope and selection changes recompute the preview from the original geometry and current correction rather than accumulating extra movement.
+With selective mode enabled and no pieces selected, single-file mode uses whole-base scope. Two-file mode requires a selection before selective alignment or export. Unchecking **Enable Selective Alignment** restores whole-base scope and retains the selection for later use. Changing the scope or selection recalculates the pending preview. Previously applied single-file moves stay in place.
 
-### Electrical and miniportal connections
+### Electrical wires, teleporter cables, and supply pipes
 
-Selective mode handles standard electrical wires (`^U_POWERLINE`) and miniportal/short-range teleporter wires (`^U_PORTALLINE`). Selecting a device does not automatically select the rest of its network.
+Selective mode handles electrical wires (`^U_POWERLINE`), short-range teleporter cables (`^U_PORTALLINE`), and supply pipes (`^U_PIPELINE`). Supported supply sockets include supply depots and mineral and gas extractors.
 
-Open **Connection attachments** to inspect automatic attachment results. The editor matches endpoints against a bundled socket catalogue using the Before file's object positions, orientations, and scales. A unique compatible socket within 0.001 local game units identifies the original attachment. Electrical and miniportal sockets are matched separately.
+Open **Connection attachments** to inspect automatic attachment results. The editor matches endpoints against a bundled socket catalogue using the current applied layout in single-file mode and the Before layout in two-file mode. A unique compatible socket within 0.001 local game units identifies the attachment. Each connection type is matched separately, accounting for object position, orientation, and scale.
 
 An attached endpoint follows its original object's position and orientation when that object moves; otherwise it stays fixed. Endpoints attached to the same socket share one junction, including endpoints with small numeric differences. Nearby unattached endpoints of the same wire type also share a junction within the matching tolerance. Selecting a device does not select other devices in its network.
 
@@ -161,15 +163,15 @@ Existing free endpoints and unattached wire junctions stay at their original pos
 | Neither endpoint moves | The segment stays unchanged. |
 | Only one endpoint moves | That end follows its object; the other stays fixed, changing segment length and direction. |
 
-The catalogue covers 214 part IDs; it is not a complete guarantee for every game part or version. For parts without catalogue entries, a unique exact object-origin match remains supported. Other unmatched endpoints are preserved as fixed geometry, so an unsupported device socket may be treated as unattached. Inspect affected connections carefully when using unsupported parts.
+Socket coverage varies by part and game version. For electrical wires and teleporter cables, a unique exact object-origin match remains supported for parts without catalogue entries. Other unmatched endpoints are preserved as fixed geometry, so an unsupported device socket may be treated as unattached. Inspect affected connections carefully when using unsupported parts.
 
 Multiple socket candidates remain ambiguous rather than being assigned arbitrarily. Only ambiguous junctions expose assignment controls. Choose the actual attached object if known; **Keep fixed** or **Move with selection** explicitly overrides endpoint movement, and **Resolve attachment** leaves the ambiguity unresolved. Do not assign a socket to an unrelated nearby object. Routine supported attachments and existing free ends require no manual assignment.
 
-The preview draws crossing wires purple, unresolved wires red, and other resolved wires in a muted color. The status report counts internal, crossing, fixed, and unresolved segments. Unresolved ambiguous attachments or a moved segment collapsed to zero length block selective export. Existing free endpoints do not. The exporter preserves other wire properties while updating geometry.
+The preview draws crossing wires purple, unresolved wires red, and other resolved wires in a muted color. The status report counts internal, crossing, fixed, and unresolved segments. In single-file mode, applying a move with an unresolved affected attachment or a segment that would collapse to zero length opens a warning. Choose **Cancel** to leave the move unapplied, or **Move anyway** to apply it and preserve the unresolved connection records. You can then export the applied layout. In two-file mode, unresolved connections block selective export until they are resolved. Existing free ends can be exported.
 
 In whole-base mode, wires follow the established whole-base transform, including free ends, preserving their shape. The fixed-free-end policy applies to selective alignment.
 
-These checks establish geometry, not an in-game connectivity guarantee. Verify both power delivery and miniportal travel after import.
+These checks establish geometry, not an in-game connectivity guarantee. Verify power delivery, short-range teleporter travel, and supply flow after import.
 
 ## Coordinates and axes
 
@@ -240,4 +242,4 @@ node test_editor.cjs
 
 The browser smoke test uses a local Windows Chrome installation and Node 22+ with no npm dependencies. It creates synthetic fixtures and a temporary browser profile under the system temporary directory. It checks the real generated page, single-file generation, After-file loading, measured translation options, rotation, manual edits, undo/reset, download, rectangle/circle selection, camera-stable membership, and scope toggling. Set the `PYTHON` environment variable to the Python executable if `py` is unavailable.
 
-The Node logic regressions cover selective scope, empty-selection/export guards, unselected geometry, electrical and teleporter endpoints, crossing connections under rotation, and unresolved attachments, alongside existing alignment behavior. Socket regressions also cover offset sockets on rotated/scaled objects, shared socket junctions with small coordinate differences, fixed free ends during translation and rotation, and preservation of unaffected wires. The Python suite covers generation, calibration, identity validation, and geometry. These synthetic tests do not replace in-game validation.
+The Node logic regressions cover scope and export behavior in both modes, unselected geometry, electrical and teleporter endpoints, crossing connections under rotation, and the unresolved-connection warning, including Cancel, Move anyway, Undo, and Redo. Set `NMS_G007` to the path of the G007 hydroponics export to also run read-only checks for all three connection types. Socket regressions also cover offset sockets on rotated/scaled objects, shared socket junctions with small coordinate differences, fixed free ends during translation and rotation, and preservation of unaffected wires. The Python suite covers generation, calibration, identity validation, and geometry. These synthetic tests do not replace in-game validation.
