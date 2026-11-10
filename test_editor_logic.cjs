@@ -3,7 +3,7 @@ const template=fs.readFileSync(path.join(__dirname,'nms_base_editor.html'),'utf8
 const part=(id,p)=>({ObjectID:id,Position:p,Up:[0,2,0],At:[0,0,3],UserData:{keep:42}});
 const fixture=()=>({Owner:{UID:'synthetic'},Position:[1,2,3],Forward:[0,0,1],GalacticAddress:'test',Objects:[part('^BASE_FLAG',[0,0,0]),part('^FLOOR',[2,3,4]),part('^FLOOR',[8,9,10]),part('^OTHER',[-2,0,4])]});
 function load(before=fixture(),after=null){const els={},ctx=new Proxy({},{get:()=>()=>{}});let blob;
- const el=id=>els[id]??={value:['mode'].includes(id)?'orbit':0,checked:true,disabled:false,options:[],append(o){this.options.push(o)},replaceChildren(){this.options=[]},clientWidth:900,clientHeight:700,getContext:()=>ctx};
+ const el=id=>els[id]??={value:['mode'].includes(id)?'orbit':0,checked:true,disabled:false,options:[],showModal(){this.open=true},close(){this.open=false},append(o){this.options.push(o)},replaceChildren(){this.options=[]},clientWidth:900,clientHeight:700,getContext:()=>ctx};
  const s={document:{getElementById:el,createElement:()=>({click(){},append(){}})},window:{devicePixelRatio:1,addEventListener(){}},Blob,URL:{createObjectURL(b){blob=b;return 'test'},revokeObjectURL(){}},setTimeout(){},console};vm.createContext(s);vm.runInContext(template.replace('/*BASE_DATA*/null',JSON.stringify({before,after})),s);return {e:expr=>vm.runInContext(expr,s),els,getBlob:()=>blob};}
 const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(a)){assert.equal(a.length,b.length);a.forEach((v,i)=>near(v,b[i]))}else assert.ok(Math.abs(a-b)<1e-9,`${a} != ${b}`)};
 (async()=>{
@@ -42,7 +42,7 @@ const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(
  if(fs.existsSync('Before.nmsbase')&&fs.existsSync('After.nmsbase')){const original=JSON.parse(fs.readFileSync('Before.nmsbase')),latest=JSON.parse(fs.readFileSync('After.nmsbase'));t=load(original,latest);assert.equal(t.e('DATA.before.Objects[calibrationIndex].ObjectID'),'^U_MINIPORTAL');t.e("$('apply').onclick()");assert.equal(t.e('result().Objects.length'),original.Objects.length);near(t.e('result().Objects[calibrationIndex].Position'),latest.Objects[0].Position);console.log('Private Before/After reproduction passed.');}
 
  // Selective mode must preserve all unselected geometry and fixed computer.
- t=load(fixture());t.e("$('selective').checked=true;changeScope()");assert.equal(t.els.download.disabled,true);
+ t=load(fixture());t.e("$('selective').checked=true;changeScope()");assert.equal(t.els.download.disabled,false);
  t.e("changeMembers(new Set([1]));$('ty').value=5;draw()");let selective=json(t.e('result()'));
  near(selective.Objects[1].Position,[2,8,4]);assert.deepEqual(selective.Objects[2],fixture().Objects[2]);
  t.e("$('undo').onclick()");assert.equal(t.e('members.size'),0);
@@ -60,9 +60,9 @@ const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(
  let out=json(t.e('result()'));near(out.Objects[4].Position,[2,5,0]);near(t.e('wireEnd(result().Objects[4])'),[12,0,0]);assert.equal(t.e('connectionReport.crossing'),1);assert.equal(t.els.download.disabled,false);
  assert.deepEqual(out.Objects[2],b.Objects[2]);assert.deepEqual(out.Objects[0],b.Objects[0]);
  t.e("$('rz').value=35;draw()");near(t.e('wireEnd(result().Objects[4])'),[12,0,0]);
- t.e("bindings[0]='unresolved';draw()");assert.equal(t.els.download.disabled,true);
+ t.e("bindings[1]='unresolved';draw()");assert.equal(t.els.download.disabled,true);
  const previous=t.getBlob();t.e("$('download').onclick()");assert.equal(t.getBlob(),previous);
- t.e("bindings[0]='1';changeMembers(new Set([1,2]));$('rz').value=0;draw()");near(t.e('wireEnd(result().Objects[4])'),[12,5,0]);assert.equal(t.e('connectionReport.internal'),1);
+ t.e("bindings[1]='2';changeMembers(new Set([1,2]));$('rz').value=0;draw()");near(t.e('wireEnd(result().Objects[4])'),[12,5,0]);assert.equal(t.e('connectionReport.internal'),1);
  }
  // Offset sockets, scaled/rotated owner, shared socket precision, and free ends.
  {
@@ -81,6 +81,47 @@ const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(
  t.e("$('rz').value=37;draw()");near(t.e('wireEnd(result().Objects[4])'),end);
  t.e("changeMembers(new Set([2]));draw()");
  assert.deepEqual(json(t.e('result().Objects[4]')),b.Objects[4]);
+ }
+
+ // Applying single-file movement commits once, keeps an unresolved record intact,
+ // and can be undone and redone independently of the pending preview.
+ {
+ const b=fixture();
+ b.Objects[1].Position=[2,0,0];b.Objects[2].Position=[2,0,0];
+ b.Objects.push({...part('^U_POWERLINE',[2,0,0]),At:[11,0,0]});
+ t=load(b);t.e("$('selective').checked=true;changeScope();changeMembers(new Set([1]));$('ty').value=5;draw();$('apply').onclick()");
+ assert.equal(t.els.movementWarning.open,true);
+ t.els.movementWarning.close();
+ assert.deepEqual(json(t.e('baseline')),b);
+ t.e("$('apply').onclick();$('moveAnyway').onclick()");
+ const moved=json(t.e('result()'));
+ assert.deepEqual(moved.Objects[1].Position,[2,5,0]);
+ assert.deepEqual(moved.Objects[2],b.Objects[2]);
+ assert.deepEqual(moved.Objects[4],b.Objects[4]);
+ t.e("$('undo').onclick()");assert.deepEqual(json(t.e('result()')),b);
+ t.e("$('redo').onclick()");assert.deepEqual(json(t.e('result()')),moved);
+ t.e("changeMembers(new Set());$('tx').value=3;draw();$('apply').onclick()");
+ near(t.e('result().Objects[4].Position'),[5,0,0]);
+ }
+
+ // Optional G007 export stays outside the repository and is only read.
+ if(process.env.NMS_G007){
+ const base=JSON.parse(fs.readFileSync(process.env.NMS_G007));t=load(base);
+ for(const [id,count] of [['^U_POWERLINE',112],['^U_PORTALLINE',4],['^U_PIPELINE',19]]){
+  const records=t.e('Array.from(wireNodes, ([i,nodes])=>({i,owners:nodes.map(j=>junctions[j].owner)}))')
+   .filter(({i})=>base.Objects[i].ObjectID===id);
+  assert.equal(records.length,count);
+  if(id!=='^U_POWERLINE')assert.ok(records.every(({owners})=>owners.every(i=>i!==null)));
+  for(const {i,owners} of records.filter(({owners})=>owners[0]!==null&&owners[1]!==null&&owners[0]!==owners[1])){
+   const oldEnd=t.e('wireEnd(DATA.before.Objects['+i+'])');
+   t.e("$('selective').checked=true;scope=true;members=new Set(["+owners[0]+"]);$('ty').value=5");
+   const start=t.e('result().Objects['+i+'].Position');
+   assert.ok(Math.hypot(...start.map((v,k)=>v-base.Objects[i].Position[k]-(k===1?5:0)))<.001);
+   const end=t.e('wireEnd(result().Objects['+i+'])');
+   assert.ok(Math.hypot(...end.map((v,k)=>v-oldEnd[k]))<.001);
+  }
+ }
+ console.log('G007 endpoint checks passed.');
  }
  console.log('Socket checks passed: rotated/scaled owner, shared socket, fixed free ends, unaffected wire preservation.');
  console.log('Selective checks passed: scope, empty selection, undo, unselected geometry, electrical/teleporter endpoints, crossing rotation, export guard.');
