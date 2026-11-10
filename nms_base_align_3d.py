@@ -236,6 +236,31 @@ def load_models(root, objects):
     return models
 
 
+def render_editor(before_path, after_path=None, reference=None):
+    before = read_base(before_path)
+    after = read_base(after_path) if after_path else copy.deepcopy(before)
+    pairs = reference_pairs(before, after, reference)
+    return render_editor_data(before, after if after_path else None, pairs)
+
+
+def render_editor_data(before, after, pairs):
+    app_dir = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
+    models = load_models(app_dir / 'models', before['Objects'])
+    payload = json.dumps({'before': before, 'after': after,
+                          'pairs': pairs, 'models': models}, allow_nan=False).replace('<', '\\u003c').replace('&', '\\u0026')
+    template_path = Path(__file__).with_name('nms_base_editor.html')
+    try:
+        template = template_path.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        raise AlignmentError(
+            f'Missing browser editor template: {template_path}. '
+            'Restore nms_base_editor.html from the original download beside '
+            'nms_base_align.py and nms_base_align_3d.py, then rerun this command. '
+            'Keep this template for future runs; use a different name for the generated viewer.'
+        ) from None
+    return template.replace('/*BASE_DATA*/null', payload)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('before', type=Path)
@@ -254,22 +279,9 @@ def main():
             raise AlignmentError('Output must not replace an input.')
         if args.output.exists() and not args.overwrite:
             raise AlignmentError('Output exists; choose another name or use --overwrite.')
-        app_dir = Path(sys.executable if getattr(sys, 'frozen', False) else __file__).resolve().parent
-        models = load_models(app_dir / 'models', before['Objects'])
-        payload = json.dumps({'before': before, 'after': after if args.after else None,
-                              'pairs': pairs, 'models': models}, allow_nan=False).replace('<', '\\u003c').replace('&', '\\u0026')
-        template_path = Path(__file__).with_name('nms_base_editor.html')
-        try:
-            template = template_path.read_text(encoding='utf-8')
-        except FileNotFoundError:
-            raise AlignmentError(
-                f'Missing browser editor template: {template_path}. '
-                'Restore nms_base_editor.html from the original download beside '
-                'nms_base_align.py and nms_base_align_3d.py, then rerun this command. '
-                'Keep this template for future runs; use a different name for the generated viewer.'
-            ) from None
+        html = render_editor_data(before, after if args.after else None, pairs)
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(template.replace('/*BASE_DATA*/null', payload), encoding='utf-8')
+        args.output.write_text(html, encoding='utf-8')
         print(f'Created {args.output}. Open it in your browser; select the reference, refine, then download the adjusted base.')
     except (AlignmentError, OSError, ValueError) as exc:
         parser.exit(2, f'Error: {exc}\n')
