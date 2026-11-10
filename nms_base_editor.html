@@ -7,14 +7,18 @@
 <main><aside><h1>Align your base</h1><p>Adjust one export manually, or add an After export to follow a corrected part. The Base Computer stays fixed.</p>
 <label>Add After file <input id="afterFile" type="file" accept=".nmsbase,.json"></label>
 <p id="calibrationInfo" role="status"></p>
-<fieldset><legend>Apply measured movement</legend><div class="row"><label><input id="mx" type="checkbox" checked> X</label><label><input id="my" type="checkbox" checked> Y</label><label><input id="mz" type="checkbox" checked> Z</label></div>
+<fieldset id="referenceMovement"><legend>Apply measured movement</legend><div class="row"><label><input id="mx" type="checkbox" checked> X</label><label><input id="my" type="checkbox" checked> Y</label><label><input id="mz" type="checkbox" checked> Z</label></div>
 <label><input id="measuredRotation" type="checkbox" checked> Apply measured rotation</label>
 <small>Rotate around the Before reference position, then add the selected movement components. With rotation enabled, coordinates on unchecked axes can still change through rotation.</small></fieldset>
 <label>Manual rotation pivot <select id="reference"></select></label>
 <button id="apply" class="primary">Align rest of base to corrected reference</button>
 <p id="referenceInfo"></p>
+<dialog id="movementWarning" aria-labelledby="movementWarningText">
+<p id="movementWarningText"></p>
+<form method="dialog"><button autofocus>Cancel</button> <button id="moveAnyway" type="button">Move anyway</button></form>
+</dialog>
 <fieldset id="alignmentScope"><legend>Alignment scope</legend>
-<small id="scopeHint">Add an After export to enable selective alignment.</small>
+<small id="scopeHint">With pieces selected, movement applies to those pieces. In single-file mode, an empty selection moves the whole base.</small>
 <label><input id="selective" type="checkbox"> Enable Selective Alignment</label>
 <div id="selectionTools" hidden>
 <label>Selection shape <select id="shape"><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
@@ -30,7 +34,7 @@
 <small>Drag to adjust. Scroll to zoom. Click a visible original part to select an eligible reference. Right-drag pans.</small>
 <label>Rotation about reference (degrees)</label><div class="row"><label>X <input id="rx" type="number" step="0.1" value="0"></label><label>Y <input id="ry" type="number" step="0.1" value="0"></label><label>Z <input id="rz" type="number" step="0.1" value="0"></label></div>
 <label>Movement in local game units</label><div class="row"><label>X <input id="tx" type="number" step="0.1" value="0"></label><label>Y <input id="ty" type="number" step="0.1" value="0"></label><label>Z <input id="tz" type="number" step="0.1" value="0"></label></div>
-<button id="undo">Undo</button> <button id="reset">Reset to original</button>
+<button id="undo">Undo</button> <button id="redo">Redo</button> <button id="reset">Reset to original</button>
 <label><input id="original" type="checkbox" checked> Show original (gray)</label>
 <label><input id="proposed" type="checkbox" checked> Show proposed (blue)</label>
 <label><input id="hideElectrical" type="checkbox"> Hide electrical and logic objects</label>
@@ -62,7 +66,7 @@ const rotation=(a,b)=>{const x=frame(a),y=frame(b);return [0,1,2].map(i=>[0,1,2]
 const FLAG='^BASE_FLAG', fields=['rx','ry','rz','tx','ty','tz'];
 let baseline, pivot, selected=0, applied=false, history=[], lastValues=[0,0,0,0,0,0], points=[], camera={yaw:.65,pitch:.45,zoom:1,pan:[0,0],center:[0,0,0]}, span=10;
 const canvas=$('view'),ctx=canvas.getContext('2d');
-const isWiring=o=>['^U_POWERLINE','^U_PORTALLINE'].includes(o.ObjectID);
+const isWiring=o=>['^U_POWERLINE','^U_PORTALLINE','^U_PIPELINE'].includes(o.ObjectID);
 /* Socket offsets: https://github.com/djmonkeyuk/nms-base-builder
 +MIT License
 
@@ -101,29 +105,43 @@ const elevationTools=[
  {toggle:'showHighest',panel:'highestTools',list:'highestParts',button:'focusHighest',label:'Highest',color:'#ff922e',edge:Math.max,radius:12}
 ];
 function wireEnd(o){const n=Math.hypot(...o.At);return add(o.Position,n>1?o.At.map(v=>v*(n-1)/n):[0,0,0])}
+// Supply sockets are distinct from the depot's electrical socket geometry.
+const supplySockets={
+ U_SILO_S:[[0,.3285,-.9779],[0,.3285,.9779],[-.9779,.3285,0],[.9779,.3285,0]],
+ U_EXTRACTOR_S:[[0,.4331,.9779]],
+ U_GASEXTRACTOR:[[0,.4331,.9779]]
+};
+function connectionSource(){return DATA.after?DATA.before:baseline}
 function buildConnections(){
  junctions=[];wireNodes=new Map();
  const tolerance=.001, sockets=[];
- DATA.before.Objects.forEach((o,i)=>{
-  const definitions=SOCKETS[o.ObjectID.replace(/^\^/,'')];if(!definitions)return;
-  const scale=Math.hypot(...o.Up),f=frame(o);
-  Object.entries(definitions).forEach(([key,v])=>{
+ const source=connectionSource().Objects;
+ source.forEach((o,i)=>{
+  const id=partType(o), definitions=SOCKETS[id];
+  if(!definitions&&!supplySockets[id])return;
+  const scale=Math.hypot(...o.Up);
+  let f;try{f=frame(o)}catch{return}
+  const world=v=>o.Position.map((x,k)=>x+scale*f.reduce((sum,axis,n)=>sum+axis[k]*v[n],0));
+  Object.entries(definitions||{}).forEach(([key,v])=>{
    // Miniportal A is electrical; B is the teleport cable socket.
-   const type=o.ObjectID==='^U_MINIPORTAL'&&key==='POWER_B'?'^U_PORTALLINE':'^U_POWERLINE';
-   sockets.push({i,key,type,p:o.Position.map((x,k)=>x+scale*f.reduce((s,axis,n)=>s+axis[k]*v[n],0))});
+   const type=/^U_MINIPORTAL(?:_CV)?$/.test(id)&&key==='POWER_B'?'^U_PORTALLINE':'^U_POWERLINE';
+   sockets.push({i,key,type,p:world(v)});
+  });
+  supplySockets[id]?.forEach((v,k)=>{
+   sockets.push({i,key:'Supply '+(k+1),type:'^U_PIPELINE',p:world(v)});
   });
  });
- DATA.before.Objects.forEach((o,i)=>{if(!isWiring(o))return;
+ source.forEach((o,i)=>{if(!isWiring(o))return;
  const nodes=[o.Position,wireEnd(o)].map(p=>{
   const matches=sockets.filter(s=>s.type===o.ObjectID&&Math.hypot(...sub(s.p,p))<=tolerance);
   let owner=null,key=null,ambiguous=matches.length>1;
   if(matches.length===1){owner=matches[0].i;key=matches[0].key}
   // Preserve legacy origin anchors only for parts without a socket catalogue.
-  if(!matches.length){const origins=DATA.before.Objects.map((obj,k)=>({obj,k})).filter(({obj})=>!isWiring(obj)&&!SOCKETS[obj.ObjectID.replace(/^\^/,'')]&&near(obj.Position,p));
-   if(origins.length===1){owner=origins[0].k;key='origin'}else ambiguous=origins.length>1;
+  if(!matches.length&&o.ObjectID!=='^U_PIPELINE'){const origins=source.map((obj,k)=>({obj,k})).filter(({obj})=>!isWiring(obj)&&!SOCKETS[obj.ObjectID.replace(/^\^/,'')]&&near(obj.Position,p));
+   if(origins.length===1){owner=origins[0].k;key='origin'}else if(origins.length>1){ambiguous=true;matches.push(...origins.map(({k})=>({i:k})))}
   }
-  let j=junctions.findIndex(n=>n.type===o.ObjectID&&(owner!==null?n.owner===owner&&n.key===key:n.owner===null&&Math.hypot(...sub(n.p,p))<=tolerance));
-  if(j<0){j=junctions.length;junctions.push({p:[...p],type:o.ObjectID,owner,key,ambiguous,ends:0})}
+  let j=junctions.findIndex(n=>n.type===o.ObjectID&&n.ambiguous===ambiguous&&(owner!==null?n.owner===owner&&n.key===key:n.owner===null&&Math.hypot(...sub(n.p,p))<=tolerance));
+  if(j<0){j=junctions.length;junctions.push({p:[...p],type:o.ObjectID,owner,key,ambiguous,candidates:matches.map(s=>s.i),ends:0})}
   junctions[j].ends++;return j;
  });wireNodes.set(i,nodes)});
  const host=$('attachments');host.replaceChildren();
@@ -135,15 +153,15 @@ function buildConnections(){
  [['unresolved','Resolve attachment'],['fixed','Keep fixed'],['move','Move with selection'],...DATA.before.Objects.map((o,i)=>[String(i),o.ObjectID+' #'+i]).filter(([i])=>!isWiring(DATA.before.Objects[Number(i)]))].forEach(([v,text])=>{const opt=document.createElement('option');opt.value=v;opt.textContent=text;sel.append(opt)});
  sel.value=bindings[j];sel.onchange=()=>{remember();bindings[j]=sel.value;draw()};label.append(sel);host.append(label)});
 }
-function movable(i){return DATA.before.Objects[i].ObjectID!==FLAG&&(!scope||members.has(i))}
+function selectiveMovement(){return scope&&(!!DATA.after||members.size>0)}
+function movable(i){return DATA.before.Objects[i].ObjectID!==FLAG&&(!selectiveMovement()||members.has(i))}
 function selectionInfo(){
- $('alignmentScope').disabled=!DATA.after;
- $('selective').disabled=!DATA.after;
- $('alignmentScope').title=DATA.after?'':'Add an After export to enable selective alignment.';
+
  $('selectionTools').hidden=!scope;$('selectionCount').textContent=members.size+' selected pieces';
- $('apply').disabled=calibrationIndex===null||(scope&&!members.size);
+ $('apply').disabled=DATA.after?calibrationIndex===null||(scope&&!members.size):!values().every(Number.isFinite)||values().every(v=>v===0);
+ $('apply').textContent=DATA.after?'Align rest of base to corrected reference':'Apply Measured Movement';
 }
-function rebuildScope(){const old=[...pivot],v=values();makeBaseline();const r=v.slice(0,3);setValues([...r,...add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))))])}
+function rebuildScope(){const old=[...pivot],v=values();if(DATA.after)makeBaseline();const r=v.slice(0,3);setValues([...r,...add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))))])}
 function changeScope(){remember();scope=$('selective').checked;rebuildScope();draw()}
 function changeMembers(next){remember();members=next;rebuildScope();draw()}
 function transformPoint(p){let q=[...p];if(applied&&calibrationIndex!==null){const a=DATA.before.Objects[calibrationIndex],b=DATA.after.Objects[detection.map[calibrationIndex]];
@@ -155,10 +173,15 @@ function connectOutput(output){
  connectionReport={internal:0,crossing:0,fixed:0,unresolved:0};
  const moving=j=>{const b=bindings[j];return b==='move'||(/^\d+$/.test(b)&&movable(Number(b)))};
  const resolved=j=>{const b=bindings[j],p=junctions[j].p;if(!moving(j))return p;if(b==='move')return transformPoint(p);
- const i=Number(b),a=DATA.before.Objects[i],o=output.Objects[i];
+ const i=Number(b),a=connectionSource().Objects[i],o=output.Objects[i];
  try{const f=frame(a),g=frame(o),v=sub(p,a.Position);return add(o.Position,[0,1,2].map(k=>f.reduce((t,axis,n)=>t+dot(v,axis)*g[n][k],0)))}catch{return transformPoint(p)}};
- wireNodes.forEach(([a,b],i)=>{if(bindings[a]==='unresolved'||bindings[b]==='unresolved'){connectionReport.unresolved++;return}
- const ma=moving(a),mb=moving(b);connectionReport[ma&&mb?'internal':ma||mb?'crossing':'fixed']++;
+ wireNodes.forEach(([a,b],i)=>{
+ const ma=moving(a),mb=moving(b);
+ const uncertain=[a,b].filter(j=>bindings[j]==='unresolved');
+ if(uncertain.length){
+  if(DATA.after||ma||mb||uncertain.some(j=>junctions[j].candidates.some(movable)))connectionReport.unresolved++;
+  return;
+ }connectionReport[ma&&mb?'internal':ma||mb?'crossing':'fixed']++;
  if(!ma&&!mb)return;
  const start=resolved(a),end=resolved(b),v=sub(end,start),n=Math.hypot(...v),o=output.Objects[i];
  if(n<1e-7){connectionReport.unresolved++;return}
@@ -206,8 +229,9 @@ function pair(){return DATA.pairs[selected]}
 function choose(){const [i]=pair();$('reference').value=String(selected);$('referenceInfo').textContent='Manual pivot: '+DATA.before.Objects[i].ObjectID+' · #'+i+'. Changing the pivot preserves the proposed layout.';updateControls()}
 function updateControls(){
  $('calibrationInfo').textContent=detection.message;
+ $('referenceMovement').hidden=!DATA.after;
  $('apply').disabled=calibrationIndex===null;
- $('apply').title=calibrationIndex===null?detection.message:'Apply the selected measured correction; manual adjustments are preserved.';
+ $('apply').title=!DATA.after?'Apply the entered movement and rotation.':calibrationIndex===null?detection.message:'Apply the selected measured correction; manual adjustments are preserved.';
  selectionInfo();
  for(const id of ['mx','my','mz','measuredRotation'])$(id).disabled=calibrationIndex===null;
 }
@@ -216,7 +240,8 @@ function setValues(v){fields.forEach((id,i)=>$(id).value=v[i])}
 function options(){return {axes:['mx','my','mz'].map(id=>$(id).checked),rotate:$('measuredRotation').checked}}
 function setOptions(o){['mx','my','mz'].forEach((id,i)=>$(id).checked=o.axes[i]);$('measuredRotation').checked=o.rotate}
 function snapshot(){return {scope,members:[...members],bindings:clone(bindings),selected,applied,values:values(),baseline:clone(baseline),pivot:[...pivot],data:clone(DATA),detection:clone(detection),calibrationIndex,appliedOptions:clone(appliedOptions),options:options()}}
-function remember(){history.push(snapshot());if(history.length>100)history.shift()}
+const redoHistory=[];
+function remember(state=snapshot()){history.push(state);if(history.length>100)history.shift();redoHistory.length=0}
 function populate(){
  $('reference').replaceChildren();DATA.pairs.forEach(([i],n)=>{const opt=document.createElement('option');opt.value=n;opt.textContent=DATA.before.Objects[i].ObjectID+' · #'+i;$('reference').append(opt)});
 }
@@ -240,7 +265,7 @@ function initialize(after,initial=false){
  if(previous){baseline=rawBaseline();baseline.Objects.forEach((o,i)=>geometry.forEach(k=>o[k]=clone(previous.baseline.Objects[i][k])));pivot=[...baseline.Objects[pair()[0]].Position];const r=previous.values.slice(0,3),t=add(previous.values.slice(3),sub(sub(previous.pivot,euler(previous.pivot,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);choose()}else makeBaseline();
 }
 function euler(v,r){let [x,y,z]=v;let [a,b,c]=r.map(d=>d*Math.PI/180);[y,z]=[y*Math.cos(a)-z*Math.sin(a),y*Math.sin(a)+z*Math.cos(a)];[x,z]=[x*Math.cos(b)+z*Math.sin(b),-x*Math.sin(b)+z*Math.cos(b)];return [x*Math.cos(c)-y*Math.sin(c),x*Math.sin(c)+y*Math.cos(c),z]}
-function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);if(v.every(x=>x===0))return scope?connectOutput(output):output;output.Objects.forEach((o,i)=>{if(!movable(i)||(scope&&isWiring(o)))return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return scope?connectOutput(output):output}
+function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);if(v.every(x=>x===0)){if(DATA.after&&scope)return connectOutput(output);connectionReport={internal:0,crossing:0,fixed:0,unresolved:0};return output;}output.Objects.forEach((o,i)=>{if(!movable(i)||(selectiveMovement()&&isWiring(o)))return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return selectiveMovement()?connectOutput(output):output}
 function project(p){let [x,y,z]=sub(p,camera.center);const c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);[x,z]=[x*c-z*s,x*s+z*c];const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);[y,z]=[y*cp-z*sp,y*sp+z*cp];return [canvas.clientWidth/2+x*camera.zoom+camera.pan[0],canvas.clientHeight/2-y*camera.zoom+camera.pan[1],z]}
 function fit(){const all=DATA.before.Objects.filter(visiblePart).map(o=>o.Position);const lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));camera.center=add(lo,hi).map(v=>v/2);span=Math.max(2,Math.hypot(...sub(hi,lo)));camera.zoom=Math.min(canvas.clientWidth,canvas.clientHeight)*.7/span;camera.pan=[0,0];draw()}
 function line(a,b,color,width=1){a=project(a);b=project(b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a.slice(0,2));ctx.lineTo(...b.slice(0,2));ctx.stroke()}
@@ -375,19 +400,43 @@ if(drag?.mode==='select'){ctx.strokeStyle='#ffe075';ctx.lineWidth=2;ctx.beginPat
 const p=add(pivot,values().slice(3));if($('mode').value==='move'||$('mode').value==='rotate'){[0,1,2].forEach(i=>{let v=[0,0,0];v[i]=span*.15;line(p,add(p,v),['#ff7777','#64e6a3','#55b5ff'][i],Number($('axis').value)===i?4:1)})}
 let max=0,changed=false;out.Objects.forEach((o,i)=>{if(o.ObjectID===FLAG)return;const source=DATA.before.Objects[i];max=Math.max(max,Math.hypot(...sub(o.Position,source.Position)));if(!sameGeometry(o,source))changed=true});
 let measured='No measured reference correction.';if(calibrationIndex!==null){const a=DATA.before.Objects[calibrationIndex],b=DATA.after.Objects[detection.map[calibrationIndex]],r=rotation(a,b),angle=Math.acos(Math.max(-1,Math.min(1,(r[0][0]+r[1][1]+r[2][2]-1)/2)))*180/Math.PI;const o=options(),delta=sub(b.Position,a.Position);measured='Measured movement XYZ: '+delta.map(v=>v.toFixed(3)).join(', ')+' units; rotation '+angle.toFixed(3)+'°.\nNext alignment: '+['X','Y','Z'].filter((_,k)=>o.axes[k]).map((name)=>name+' '+delta[['X','Y','Z'].indexOf(name)].toFixed(3)).join(', ')+(o.axes.some(Boolean)?' units. ':'No movement. ')+(o.rotate?'Full measured rotation.':'No rotation.');}
-$('status').textContent=(applied?'Reference correction applied.':'Manual editing.')+'\n'+measured+'\nManual rotation XYZ: '+values().slice(0,3).join(', ')+'°; movement XYZ: '+values().slice(3).join(', ')+'.\n'+out.Objects.length+' parts · largest movement '+max.toFixed(3)+' units.\n'+(!changed?'No meaningful geometric change.\n':'')+'Base Computer unchanged. Rotation order: X, then Y, then Z.';lastValues=values();$('download').disabled=scope&&(!members.size||connectionReport.unresolved>0);
-if(scope)$('status').textContent+='\nSelective alignment: '+members.size+' pieces. Connections: '+connectionReport.internal+' internal, '+connectionReport.crossing+' crossing, '+connectionReport.fixed+' fixed, '+connectionReport.unresolved+' unresolved.'+(connectionReport.unresolved?' Review ambiguous attachments or collapsed wires before export.':'')+' Existing free ends preserved: '+junctions.filter(n=>n.owner===null&&!n.ambiguous&&n.ends===1).length+'.';$('download').title=changed?'Download proposed base':'No meaningful geometric change';$('undo').disabled=!history.length;updateControls();
+$('status').textContent=(applied?'Reference correction applied.':'Manual editing.')+'\n'+measured+'\nManual rotation XYZ: '+values().slice(0,3).join(', ')+'°; movement XYZ: '+values().slice(3).join(', ')+'.\n'+out.Objects.length+' parts · largest movement '+max.toFixed(3)+' units.\n'+(!changed?'No meaningful geometric change.\n':'')+'Base Computer unchanged. Rotation order: X, then Y, then Z.';lastValues=values();$('download').disabled=scope&&((DATA.after&&!members.size)||connectionReport.unresolved>0);
+if(selectiveMovement())$('status').textContent+='\nSelective alignment: '+members.size+' pieces. Connections: '+connectionReport.internal+' internal, '+connectionReport.crossing+' crossing, '+connectionReport.fixed+' fixed, '+connectionReport.unresolved+' unresolved.'+(connectionReport.unresolved?(DATA.after?' Review ambiguous attachments or collapsed wires before export.':' Apply measured movement to review unresolved connections, or review the connection attachments.') : '')+' Existing free ends preserved: '+junctions.filter(n=>n.owner===null&&!n.ambiguous&&n.ends===1).length+'.';$('download').title=changed?'Download proposed base':'No meaningful geometric change';$('undo').disabled=!history.length;$('redo').disabled=!redoHistory.length;updateControls();
 
 }catch(e){$('status').textContent=e.message;$('download').disabled=true}}
 function select(index){if(index===selected)return;remember();const old=[...pivot],v=values();selected=index;pivot=[...baseline.Objects[pair()[0]].Position];const r=v.slice(0,3),t=add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);choose();draw()}
 if(!DATA)throw Error('Generate an editor using one base export, optionally followed by an After export.');
 $('reference').onchange=()=>select(Number($('reference').value));
-$('apply').onclick=()=>{if(calibrationIndex===null)return;const o=options();if(applied&&JSON.stringify(o)===JSON.stringify(appliedOptions))return;remember();const old=[...pivot],v=values();applied=true;appliedOptions=o;makeBaseline();const r=v.slice(0,3),t=add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);draw()};
-$('afterFile').onchange=async()=>{try{const file=$('afterFile').files[0];if(!file)return;const after=JSON.parse((await file.text()).replace(/^\uFEFF/,''));initialize(after);draw()}catch(e){$('calibrationInfo').textContent=e.message}finally{$('afterFile').value=''}};
+$('apply').onclick=()=>{if(!DATA.after){applyManualMovement();return}if(calibrationIndex===null)return;const o=options();if(applied&&JSON.stringify(o)===JSON.stringify(appliedOptions))return;remember();const old=[...pivot],v=values();applied=true;appliedOptions=o;makeBaseline();const r=v.slice(0,3),t=add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);draw()};
+$('afterFile').onchange=async()=>{try{const file=$('afterFile').files[0];if(!file)return;const after=JSON.parse((await file.text()).replace(/^\uFEFF/,''));initialize(after);bindings={};buildConnections();draw()}catch(e){$('calibrationInfo').textContent=e.message}finally{$('afterFile').value=''}};
 ['mx','my','mz','measuredRotation'].forEach(id=>$(id).onchange=draw);
-fields.forEach(id=>{$(id).oninput=()=>{history.push({...snapshot(),values:[...lastValues]});if(history.length>100)history.shift();draw()}});
-$('undo').onclick=()=>{const s=history.pop();if(!s)return;scope=s.scope;members=new Set(s.members);bindings=s.bindings;$('selective').checked=scope;buildConnections();selected=s.selected;applied=s.applied;baseline=s.baseline;pivot=s.pivot;Object.assign(DATA,s.data);detection=s.detection;calibrationIndex=s.calibrationIndex;appliedOptions=s.appliedOptions;setOptions(s.options);setValues(s.values);populate();choose();draw()};
-$('reset').onclick=()=>{remember();applied=false;appliedOptions=null;setValues([0,0,0,0,0,0]);makeBaseline();draw()};
+fields.forEach(id=>{$(id).oninput=()=>{remember({...snapshot(),values:[...lastValues]});draw()}});
+function restore(s){
+ scope=s.scope;members=new Set(s.members);bindings=s.bindings;$('selective').checked=scope;
+ selected=s.selected;applied=s.applied;baseline=s.baseline;pivot=s.pivot;Object.assign(DATA,s.data);
+ detection=s.detection;calibrationIndex=s.calibrationIndex;appliedOptions=s.appliedOptions;
+ setOptions(s.options);setValues(s.values);buildConnections();populate();choose();draw();
+}
+function applyManualMovement(){
+ if($('apply').disabled)return;
+ const output=result();
+ if(output.Objects.some(o=>geometry.some(k=>!o[k].every(Number.isFinite)))){
+  $('status').textContent='Adjustment is too large. Enter smaller values.';
+  return;
+ }
+ const commit=()=>{
+  remember({...snapshot(),values:[0,0,0,0,0,0]});baseline=output;pivot=[...baseline.Objects[pair()[0]].Position];setValues([0,0,0,0,0,0]);
+  bindings={};buildConnections();draw();
+ };
+ if(!connectionReport.unresolved){commit();return}
+ const dialog=$('movementWarning');
+ $('movementWarningText').textContent=connectionReport.unresolved+' affected connection(s) could not be updated. Move anyway to keep their current records and apply the movement.';
+ $('moveAnyway').onclick=()=>{dialog.close();commit()};
+ dialog.showModal();
+}
+$('undo').onclick=()=>{if(history.length){redoHistory.push(snapshot());restore(history.pop())}};
+$('redo').onclick=()=>{if(redoHistory.length){history.push(snapshot());restore(redoHistory.pop())}};
+$('reset').onclick=()=>{remember();applied=false;appliedOptions=null;setValues([0,0,0,0,0,0]);makeBaseline();if(!DATA.after){bindings={};buildConnections()}draw()};
 if(DATA.models&&Object.keys(DATA.models).length)$('shapesMode').disabled=false;
 ['original','proposed','mode','axis','display'].forEach(id=>$(id).onchange=draw);
 $('fit').onclick=fit;['top','front','side'].forEach((id,i)=>$(id).onclick=()=>{camera.yaw=[0,0,Math.PI/2][i];camera.pitch=[Math.PI/2,0,0][i];draw()});
@@ -411,7 +460,7 @@ canvas.onwheel=e=>{
  camera.pan=camera.pan.map((pan,i)=>pan+(pointer[i]-center[i]-pan)*(1-ratio));
  draw();
 };
-$('download').onclick=()=>{try{const out=result();if(scope&&(!members.size||connectionReport.unresolved))throw Error('Select pieces and resolve all connection attachments before export.');if(out.Objects.some(o=>['Position','Up','At'].some(k=>!o[k].every(Number.isFinite))))throw Error('Adjustment is too large. Enter smaller values.');const blob=new Blob([JSON.stringify(out,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Adjusted Base.nmsbase';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('status').textContent=e.message}};
+$('download').onclick=()=>{try{const out=result();if(scope&&((DATA.after&&!members.size)||connectionReport.unresolved))throw Error('Select pieces and resolve all connection attachments before export.');if(out.Objects.some(o=>['Position','Up','At'].some(k=>!o[k].every(Number.isFinite))))throw Error('Adjustment is too large. Enter smaller values.');const blob=new Blob([JSON.stringify(out,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Adjusted Base.nmsbase';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){$('status').textContent=e.message}};
 $('partQuery').value='';
  $('partQuery').oninput=draw;
  $('partMatches').onchange=()=>focusFrom('partMatches');

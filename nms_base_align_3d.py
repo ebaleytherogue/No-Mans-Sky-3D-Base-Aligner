@@ -61,7 +61,7 @@ def geometry_equal(a, b):
 
 
 # Electrical wire geometry can change when a powered reference is moved.
-WIRE_IDS = frozenset({'^U_POWERLINE', '^U_PORTALLINE'})
+WIRE_IDS = frozenset({'^U_POWERLINE', '^U_PORTALLINE', '^U_PIPELINE'})
 
 
 def is_wiring(obj):
