@@ -10,3 +10,8 @@ After.nmsbase
 Before.nmsbase
 /models/
 __pycache__/
+
+# Local Windows build outputs
+/.venv/
+/build/
+/dist/
