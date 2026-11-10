@@ -10,11 +10,11 @@ After.nmsbase
 Before.nmsbase
 /models/
 __pycache__/
-# Generated Windows application builds
+# Local Windows build outputs
+/.venv/
 /build/
 /dist/
 
-# Python cache and temporary files
-__pycache__/
+# Python temporary files
 *.pyc
 *.pyo
