@@ -23,7 +23,7 @@ try {
         Remove-Item -LiteralPath $collectedIcu
     }
     Copy-Item -LiteralPath LICENSE, README-Windows.md, How_to_activate_models.md -Destination $bundle
-    Compress-Archive -LiteralPath $bundle -DestinationPath "dist/$name-Windows-x64-Portable.zip" -Force
+    Compress-Archive -LiteralPath $bundle -DestinationPath "dist/$name-Windows-x64-Portable.zip" -CompressionLevel Optimal -Force
 } finally {
     Pop-Location
 }
