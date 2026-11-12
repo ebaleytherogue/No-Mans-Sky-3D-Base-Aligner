@@ -5,10 +5,13 @@ Preview*.html
 preview*.html
 models.zip
 How_to_activate_models_DanLocalCopy.md
+BUILD-WINDOWS.md
 Preview_Wiring_Fix.html
 After.nmsbase
 Before.nmsbase
-/models/
+/models/*
+!/models/README.md
+!/models/How_to_activate_models.md
 __pycache__/
 # Local Windows build outputs
 /.venv/
