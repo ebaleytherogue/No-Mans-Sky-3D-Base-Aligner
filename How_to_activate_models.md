@@ -4,7 +4,7 @@ The browser editor loads optional part meshes when the 3D generator creates an H
 
 ## Where to get models
 
-- **Separate Aligner model ZIP.** If the Aligner maintainer supplies a compatible ZIP, use the installation steps below. A public download for the full Aligner model pack was not verified. [Aligner releases](https://github.com/ebaleytherogue/No-Mans-Sky-3D-Base-Aligner/releases)
+- **Separate Aligner model ZIP.** If the Aligner maintainer supplies a compatible ZIP, use the installation steps below. A public download for the full Aligner model pack can be found as 'NMS Object Models.zip' within [Aligner releases](https://github.com/ebaleytherogue/No-Mans-Sky-3D-Base-Aligner/releases).
 - **Upstream Base Builder assets.** Download the source from DjMonkey’s repository. To reproduce the catalog’s input, use revision `68c4bc945320a8cfcc4a65bff5273da66f2a24a7` and look under `src/addons/no_mans_sky_base_builder/models/`. Upstream source paths are recorded in the full pack catalog, `base-builder-catalog.json`, and include GLB files. Base Builder’s own releases are another upstream download route. Those downloads require conversion before the Aligner can use their meshes. [Base Builder repository](https://github.com/djmonkeyuk/nms-base-builder) · [Base Builder releases](https://github.com/djmonkeyuk/nms-base-builder/releases)
 
 **Redistribution rights are unverified for the converted catalog and its upstream meshes.** The converted pack includes a Base Builder MIT notice. Preserve that notice and verify that the specific assets and any third-party contributions are covered before publishing a pack or mirror. Availability of a download alone does not establish redistribution rights.
@@ -53,16 +53,22 @@ The Aligner limits each manifest or mesh file to 512,000 bytes and each mesh to 
 
 ## Verify activation
 
-Use your own exported base with a part listed in the installed manifest. Replace the example path with the path to that export. Run one of these commands in PowerShell from the folder containing the executable or scripts. Choose a fresh output filename if `Model Check.html` already exists.
+Use an exported base containing a part listed in the installed manifest.
 
-```powershell
-.\NMS-Base-Aligner.exe "C:\path\to\Your Base.nmsbase" -o "Model Check.html"
-```
+### Windows portable app
+
+1. Run `NMS-Base-Aligner.exe`.
+2. Choose **File → Open single base…** and select your base export.
+3. In the viewer, switch **Display** from **Points** to **Shapes**.
+
+### Python source
+
+From the folder containing the scripts, run this command in PowerShell. Replace the example path with the path to your base export. Choose a fresh output filename if `Model Check.html` already exists.
 
 ```powershell
 py -3 .\nms_base_align_3d.py "C:\path\to\Your Base.nmsbase" -o "Model Check.html"
 ```
 
-Open the newly generated HTML and switch **Display** from **Points** to **Shapes**. A matching part should show its mesh. Parts without a usable mesh still appear as points.
+Open the newly generated HTML and switch **Display** from **Points** to **Shapes**.
 
-If **Shapes** is disabled, the generator loaded no usable meshes for that export. Check for an extra ZIP wrapper or a nested `models\models` folder, a mismatched part ID, or an invalid mesh or manifest. Regenerate after fixing the pack. Opening an older preview can give misleading results because it keeps the meshes embedded when it was generated.
+A matching part should show its mesh. Parts without a usable mesh still appear as points. If **Shapes** is disabled, check for an extra ZIP wrapper or a nested `models\models` folder, a mismatched part ID, or an invalid mesh or manifest. After fixing the pack, reopen the base in the Windows app or generate a fresh HTML file from Python. Older HTML previews keep the meshes embedded when they were generated.
