@@ -30,3 +30,5 @@ The tools write new output files without modifying input exports or game saves. 
 Import the result through NMSE and verify placement, electrical power, short-range teleporter links, and supply flow in-game using a backed-up save. Automated geometry and browser tests do not establish in-game connectivity.
 
 See the [Run Guide](NMS_Base_Aligner_Run_Guide.md) for preparation, commands, editor controls, alignment limits, and developer checks.
+
+[AI Disclosure](AI_Disclosure.md)
