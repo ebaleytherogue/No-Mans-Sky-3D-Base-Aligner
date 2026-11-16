@@ -57,6 +57,16 @@ def flag(base):
     return next(o for o in base['Objects'] if o['ObjectID'] == FLAG)
 
 
+def owner_matches(before, after):
+    left, right = before.get('Owner', {}), after.get('Owner', {})
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    if any(left.get(field) != right.get(field) for field in ('LID', 'UID', 'PTK')):
+        return False
+    left_name, right_name = left.get('USN'), right.get('USN')
+    return left_name == right_name or left_name in (None, '') or right_name in (None, '')
+
+
 def check_inputs(template, fresh, imported, corrected):
     if len(fresh['Objects']) != 1:
         raise AlignmentError('The new target export must have only its Base Computer.')
@@ -69,9 +79,8 @@ def check_inputs(template, fresh, imported, corrected):
         for field in ('GalacticAddress', 'Position', 'Forward'):
             if base.get(field) != fresh.get(field):
                 raise AlignmentError(f'The {name} export does not match the new target {field}.')
-        for field in ('LID', 'UID'):
-            if base.get('Owner', {}).get(field) != fresh.get('Owner', {}).get(field):
-                raise AlignmentError(f'The {name} export has a different owner {field}.')
+        if not owner_matches(base, fresh):
+            raise AlignmentError(f'The {name} export has a different owner.')
         if distance(flag(base)['Position'], flag(fresh)['Position']) > POSITION_TOLERANCE:
             raise AlignmentError(f'The Base Computer moved in the {name} export.')
     if distance(flag(imported)['Position'], flag(corrected)['Position']) > 1e-5:
