@@ -134,6 +134,15 @@ Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pa
 
 Back up the save, close the game, and import the downloaded file into the same base with NMSE. Check placement, electrical power, short-range teleporter links, and supply flow in-game before saving. **Existing-base repair and manual editing do not require restoring a computer-only save.** Do not use the transfer workflow's restoration step for an existing-base repair.
 
+### Ground Reference
+
+- **Show ground plane** toggles the primary guide. **Ground elevation (Y)** sets its height in base-local game units. **Reset to Y = 0** restores the Base Computer's elevation.
+- To adjust the height in the viewer, show the primary plane and choose **Move ground plane** under **Drag action**. Drag up to raise it or down to lower it. Use Front or an angled view to see the change. Right-drag still pans and scrolling still zooms.
+- To match a part's origin, click an eligible original part in Orbit mode or focus a part with **Find a part**. With Selective Alignment enabled, select exactly one visible piece. Click **Set ground level to selected part** to use the part's proposed Y when that view is shown, or its original Y when only the original view is shown. The origin can be above the part's bottom surface.
+- **Plane opacity** adjusts both guides. **Show lower reference plane** toggles the dashed lower guide independently. **Depth below ground** sets how far below the primary guide it stays, even when the primary guide is hidden.
+
+The planes show estimated elevations. They use no measured terrain data, stay out of exports, and start with fresh settings when you open a new base.
+
 ### Selective Alignment
 
 Leave **Enable Selective Alignment** unchecked to move the whole construction using the existing rules, with the Base Computer fixed. Enable it when only an affected area needs correction.

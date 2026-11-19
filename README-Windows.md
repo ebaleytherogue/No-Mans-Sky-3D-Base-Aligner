@@ -2,6 +2,8 @@
 
 Extract the portable ZIP and run `NMS-Base-Aligner.exe`. Keep the `_internal` folder beside it. Use the File menu to open one base for manual editing or both Before and After for measured correction. The viewer can also add After after opening a single base. Use **Save adjusted base** or the viewer's existing download button to choose a destination for the adjusted export.
 
+In either mode, **Ground Reference** starts at the Base Computer's local Y = 0. Enter an elevation or choose **Move ground plane** under **Drag action** and drag vertically in the viewer. The optional lower plane follows at the configured depth. These visual guides use no measured terrain data and are excluded from saved base files.
+
 For optional meshes, put a compatible `models` folder next to the EXE. See [How to activate models](How_to_activate_models.md).
 
 ## Build the prototype

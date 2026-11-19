@@ -29,6 +29,8 @@ The tools write new output files without modifying input exports or game saves. 
 
 Import the result through NMSE and verify placement, electrical power, short-range teleporter links, and supply flow in-game using a backed-up save. Automated geometry and browser tests do not establish in-game connectivity.
 
+Use **Ground Reference** in either viewer mode to compare part heights against adjustable guides. The primary plane starts at the Base Computer's local Y = 0. The optional lower plane follows it at the configured depth. Both are visual guides, with no measured terrain data.
+
 See the [Run Guide](NMS_Base_Aligner_Run_Guide.md) for preparation, commands, editor controls, alignment limits, and developer checks.
 
 [AI Disclosure](AI_Disclosure.md)

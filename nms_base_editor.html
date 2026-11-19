@@ -27,7 +27,7 @@
 <p id="selectionCount"></p><small>Use Select pieces drag action on original positions. Click to pick one piece. Shapes select through all depths; use Top, Front and Side to inspect. Camera changes preserve membership. The computer is always fixed.</small>
 <details><summary>Connection attachments</summary><p>Sockets are matched from the Before file. Endpoints follow their original objects. Existing free ends and unattached wire junctions stay fixed during selective alignment. Only ambiguous attachments require review.</p><div id="attachments"></div></details>
 </div></fieldset>
-<label>Drag action <select id="mode"><option value="select">Select pieces</option><option value="orbit" selected>Orbit camera</option><option value="pan">Pan camera</option><option value="rotate">Rotate base on selected axis</option><option value="move">Move base on selected axis</option></select></label>
+<label>Drag action <select id="mode"><option value="select">Select pieces</option><option value="orbit" selected>Orbit camera</option><option value="pan">Pan camera</option><option value="rotate">Rotate base on selected axis</option><option value="move">Move base on selected axis</option><option value="ground">Move ground plane</option></select></label>
 <button id="resetView" type="button">Reset View</button>
 <label>Display <select id="display"><option value="points">Points</option><option id="shapesMode" value="shapes" disabled>Shapes</option></select></label>
 <label>Adjustment axis <select id="axis"><option value="0">X · pitch</option><option value="1">Y · yaw</option><option value="2">Z · roll</option></select></label>
@@ -38,6 +38,18 @@
 <label><input id="original" type="checkbox" checked> Show original (gray)</label>
 <label><input id="proposed" type="checkbox" checked> Show proposed (blue)</label>
 <label><input id="hideElectrical" type="checkbox"> Hide electrical and logic objects</label>
+<fieldset><legend>Ground Reference</legend>
+<small>Y = 0 is the Base Computer's base-local elevation. Both planes are visual guides only. Terrain elevation has not been measured.</small>
+<label><input id="showGround" type="checkbox" checked> Show ground plane</label>
+<label>Ground elevation (Y) <input id="groundY" type="number" step="any" value="0"></label>
+<button id="resetGround" type="button">Reset to Y = 0</button>
+<button id="groundFromPart" type="button">Set ground level to selected part</button>
+<small id="groundPartHint"></small>
+<label>Plane opacity <input id="groundOpacity" type="range" min="0" max="30" value="16"></label>
+<label><input id="showLowerGround" type="checkbox"> Show lower reference plane</label>
+<label>Depth below ground <input id="groundDepth" type="number" min="0" step="any" value="5"></label>
+<small>Choose “Move ground plane” under Drag action, then drag up or down in the viewer. Use Front or an angled view to see its height change.</small>
+</fieldset>
 <fieldset><legend>Part origin elevations</legend><small>Uses the proposed view when shown, otherwise the original.</small>
 <label><input id="showLowest" type="checkbox"> Highlight lowest (blue)</label>
 <div id="lowestTools" hidden><label>Lowest origins <select id="lowestParts"></select></label><button id="focusLowest">Focus lowest</button></div>
@@ -52,7 +64,7 @@
 <div><button id="fit">Fit</button> <button id="top">Top</button> <button id="front">Front</button> <button id="side">Side</button></div>
 <p id="status" role="status"></p><button id="download" class="primary">Download adjusted .nmsbase</button>
 <p><small>Positions and orientation arrows only; no terrain or part meshes. Verify placement in-game using a backed-up save. This file contains your base export data: keep it private.</small></p>
-</aside><section><canvas id="view" aria-label="Rotatable base position overlay"></canvas><div class="legend">● Gray: original · Blue: proposed<br>● Green: reference · Orange: fixed computer<br>● Yellow: selected · Purple: crossing wire · Red: unresolved<br>Reference axes: X red · Y green · Z blue</div></section></main>
+</aside><section><canvas id="view" aria-label="Rotatable base position overlay"></canvas><div class="legend">● Gray: original · Blue: proposed<br>● Green: reference · Orange: fixed computer<br>● Yellow: selected · Purple: crossing wire · Red: unresolved<br>Reference axes: X red · Y green · Z blue<div id="groundLegend"></div></div></section></main>
 <script>
 'use strict';
 const DATA=/*BASE_DATA*/null;
@@ -66,6 +78,7 @@ const rotation=(a,b)=>{const x=frame(a),y=frame(b);return [0,1,2].map(i=>[0,1,2]
 const FLAG='^BASE_FLAG', fields=['rx','ry','rz','tx','ty','tz'];
 let baseline, pivot, selected=0, applied=false, history=[], lastValues=[0,0,0,0,0,0], points=[], camera={yaw:.65,pitch:.45,zoom:1,pan:[0,0],center:[0,0,0]}, span=10;
 const canvas=$('view'),ctx=canvas.getContext('2d');
+const ground={y:0,depth:5,opacity:.16,center:[0,0,0]};
 const isWiring=o=>['^U_POWERLINE','^U_PORTALLINE','^U_PIPELINE'].includes(o.ObjectID);
 /* Socket offsets: https://github.com/djmonkeyuk/nms-base-builder
 +MIT License
@@ -267,12 +280,55 @@ function initialize(after,initial=false){
 function euler(v,r){let [x,y,z]=v;let [a,b,c]=r.map(d=>d*Math.PI/180);[y,z]=[y*Math.cos(a)-z*Math.sin(a),y*Math.sin(a)+z*Math.cos(a)];[x,z]=[x*Math.cos(b)+z*Math.sin(b),-x*Math.sin(b)+z*Math.cos(b)];return [x*Math.cos(c)-y*Math.sin(c),x*Math.sin(c)+y*Math.cos(c),z]}
 function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);if(v.every(x=>x===0)){if(DATA.after&&scope)return connectOutput(output);connectionReport={internal:0,crossing:0,fixed:0,unresolved:0};return output;}output.Objects.forEach((o,i)=>{if(!movable(i)||(selectiveMovement()&&isWiring(o)))return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return selectiveMovement()?connectOutput(output):output}
 function project(p){let [x,y,z]=sub(p,camera.center);const c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);[x,z]=[x*c-z*s,x*s+z*c];const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);[y,z]=[y*cp-z*sp,y*sp+z*cp];return [canvas.clientWidth/2+x*camera.zoom+camera.pan[0],canvas.clientHeight/2-y*camera.zoom+camera.pan[1],z]}
-function fit(){const all=DATA.before.Objects.filter(visiblePart).map(o=>o.Position);const lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));camera.center=add(lo,hi).map(v=>v/2);span=Math.max(2,Math.hypot(...sub(hi,lo)));camera.zoom=Math.min(canvas.clientWidth,canvas.clientHeight)*.7/span;camera.pan=[0,0];draw()}
+function fit(){const all=DATA.before.Objects.filter(visiblePart).map(o=>o.Position);const lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));camera.center=add(lo,hi).map(v=>v/2);ground.center=[...camera.center];span=Math.max(2,Math.hypot(...sub(hi,lo)));camera.zoom=Math.min(canvas.clientWidth,canvas.clientHeight)*.7/span;camera.pan=[0,0];draw()}
 function line(a,b,color,width=1){a=project(a);b=project(b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a.slice(0,2));ctx.lineTo(...b.slice(0,2));ctx.stroke()}
 function viewportObjects(out){
  if($('proposed').checked)return out.Objects;
  if($('original').checked)return DATA.before.Objects;
  return [];
+}
+function groundPart(out){
+ const i=scope?(members.size===1?[...members][0]:null):focusedPart;
+ const part=viewportObjects(out)[i];
+ return part&&visiblePart(part)?part:null;
+}
+function setGroundY(y){
+ ground.y=y;
+ $('groundY').value=y;
+ draw();
+}
+function drawGround(out){
+ const [x,,z]=ground.center,half=span*.65,labels=[];
+ const planes=[
+  ['showLowerGround',ground.y-ground.depth,'Lower','#bba5eb',[5,4]],
+  ['showGround',ground.y,'Ground','#6fc6bc',[]]
+ ];
+ for(const [toggle,y,label,color,dashes] of planes){
+  if(!$(toggle).checked||!Number.isFinite(y))continue;
+  const corners=[[x-half,y,z-half],[x+half,y,z-half],[x+half,y,z+half],[x-half,y,z+half]].map(project);
+  if(!corners.every(p=>p.every(Number.isFinite)))continue;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(...corners[0].slice(0,2));
+  for(const p of corners.slice(1))ctx.lineTo(...p.slice(0,2));
+  ctx.closePath();
+  ctx.fillStyle=ctx.strokeStyle=color;
+  ctx.globalAlpha=ground.opacity;
+  ctx.fill();
+  ctx.globalAlpha=Math.min(ground.opacity*2,.45);
+  ctx.lineWidth=1;
+  ctx.setLineDash(dashes);
+  ctx.stroke();
+  ctx.restore();
+  labels.unshift(label+' plane Y = '+Number(y.toPrecision(8)));
+ }
+ $('groundLegend').textContent=labels.join(' · ');
+ const part=groundPart(out);
+ $('groundFromPart').disabled=!part;
+ $('groundPartHint').textContent=part
+  ?'Uses the part’s displayed origin, which may be above its bottom surface.'
+  :scope?'Select exactly one visible piece.'
+   :'Click an eligible original part in Orbit mode or focus a part with the inspection tools.';
 }
 function updatePartList(id,entries,empty,format){
  const list=$(id),key=JSON.stringify([entries.map(format),empty]);
@@ -375,6 +431,7 @@ const layers=[];
 if($('original').checked)layers.push([DATA.before.Objects,true]);
 if($('proposed').checked)layers.push([out.Objects,false]);
 const markers=[], faces=[];
+drawGround(out);
 for(const [objects,original] of layers){
  for(const {o,i,p} of objects.map((o,i)=>({o,i,p:project(o.Position)})).filter(({o})=>visiblePart(o)).sort((a,b)=>a.p[2]-b.p[2])){
   const fixed=o.ObjectID===FLAG,ref=i===(original?refOld:(applied?refNew:refOld));
@@ -441,14 +498,50 @@ if(DATA.models&&Object.keys(DATA.models).length)$('shapesMode').disabled=false;
 ['original','proposed','mode','axis','display'].forEach(id=>$(id).onchange=draw);
 $('fit').onclick=fit;['top','front','side'].forEach((id,i)=>$(id).onclick=()=>{camera.yaw=[0,0,Math.PI/2][i];camera.pitch=[Math.PI/2,0,0][i];draw()});
 canvas.oncontextmenu=e=>e.preventDefault();canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);const mode=e.button===2?'pan':$('mode').value;drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,mode,v:values(),localX:e.clientX-canvas.getBoundingClientRect().left,localY:e.clientY-canvas.getBoundingClientRect().top};if(mode==='rotate'||mode==='move')remember()};
-canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(drag.mode==='select'){draw();return}else if(drag.mode==='orbit'){camera.yaw+=dx*.008;camera.pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,camera.pitch+dy*.008))}else if(drag.mode==='pan'){camera.pan[0]+=dx;camera.pan[1]+=dy}else{const v=[...drag.v],k=Number($('axis').value)+(drag.mode==='move'?3:0);v[k]+=(e.clientX-drag.startX-e.clientY+drag.startY)*(drag.mode==='move'?1/camera.zoom:.3);setValues(v)}draw()};
+canvas.onpointermove=e=>{
+ if(!drag)return;
+ const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+ drag.x=e.clientX;drag.y=e.clientY;
+ if(drag.mode==='ground'){
+  if($('showGround').checked){
+   // Limit sensitivity near Top, where projected vertical motion approaches zero.
+   const y=ground.y-dy/(camera.zoom*Math.max(.25,Math.cos(camera.pitch)));
+   if(Number.isFinite(y))setGroundY(y);
+  }
+  return;
+ }
+ if(drag.mode==='orbit'){
+  camera.yaw+=dx*.008;
+  camera.pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,camera.pitch+dy*.008));
+ }else if(drag.mode==='pan'){
+  camera.pan[0]+=dx;camera.pan[1]+=dy;
+ }else if(drag.mode==='rotate'||drag.mode==='move'){
+  const v=[...drag.v],k=Number($('axis').value)+(drag.mode==='move'?3:0);
+  v[k]+=(e.clientX-drag.startX-e.clientY+drag.startY)*(drag.mode==='move'?1/camera.zoom:.3);
+  setValues(v);
+ }
+ draw();
+};
 canvas.onpointerup=e=>{if(!drag)return;if(drag.mode==='select'&&scope){
  const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY,x=drag.localX,y=drag.localY,click=Math.hypot(dx,dy)<4;
  const pts=DATA.before.Objects.map((o,i)=>({o,i,p:project(o.Position)})).filter(({o})=>o.ObjectID!==FLAG&&!isWiring(o)&&visiblePart(o));
  let hits=pts.filter(({p})=>$('shape').value==='circle'?Math.hypot(p[0]-x,p[1]-y)<=Math.hypot(dx,dy):p[0]>=Math.min(x,x+dx)&&p[0]<=Math.max(x,x+dx)&&p[1]>=Math.min(y,y+dy)&&p[1]<=Math.max(y,y+dy));
  if(click)hits=pts.map(p=>({...p,d:Math.hypot(p.p[0]-x,p.p[1]-y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d).slice(0,1);
  const action=$('selectionAction').value,next=action==='replace'?new Set():new Set(members);hits.forEach(({i})=>action==='remove'?next.delete(i):next.add(i));drag=null;changeMembers(next);return;
- }if(drag.mode==='orbit'&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const hits=points.map(p=>({...p,d:Math.hypot(x-p.x,y-p.y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d);const hit=hits.find(p=>DATA.pairs.some(pair=>pair[0]===p.i));if(hit)select(DATA.pairs.findIndex(pair=>pair[0]===hit.i))}drag=null};canvas.onpointercancel=()=>drag=null;
+ }
+ if(drag.mode==='orbit'&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){
+  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  const hits=points.map(p=>({...p,d:Math.hypot(x-p.x,y-p.y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d);
+  const hit=hits.find(p=>DATA.pairs.some(pair=>pair[0]===p.i));
+  if(hit){
+   focusedPart=hit.i;
+   select(DATA.pairs.findIndex(pair=>pair[0]===hit.i));
+   draw();
+  }
+ }
+ drag=null;
+};
+canvas.onpointercancel=()=>drag=null;
 canvas.onwheel=e=>{
  e.preventDefault();
  const rect=canvas.getBoundingClientRect();
@@ -473,6 +566,27 @@ $('partQuery').value='';
  }
  $('mode').value='orbit';
  $('selective').onchange=changeScope;$('clearSelection').onclick=()=>changeMembers(new Set());
+ $('showGround').checked=true;
+ $('showLowerGround').checked=false;
+ for(const id of ['showGround','showLowerGround'])$(id).onchange=draw;
+ for(const [id,key,min] of [['groundY','y',-Infinity],['groundDepth','depth',0]]){
+  $(id).value=ground[key];
+  $(id).oninput=()=>{
+   const value=Number($(id).value);
+   if($(id).value!==''&&Number.isFinite(value)&&value>=min){
+    ground[key]=value;
+    draw();
+   }
+  };
+  $(id).onchange=()=>{$(id).value=ground[key]};
+ }
+ $('groundOpacity').value=ground.opacity*100;
+ $('groundOpacity').oninput=()=>{ground.opacity=Number($('groundOpacity').value)/100;draw()};
+ $('resetGround').onclick=()=>setGroundY(0);
+ $('groundFromPart').onclick=()=>{
+  const part=groundPart(result());
+  if(part&&Number.isFinite(part.Position[1]))setGroundY(part.Position[1]);
+ };
 window.addEventListener('resize',draw);initialize(DATA.after,true);buildConnections();fit();
 const openingCamera=clone(camera);
 $('resetView').onclick=()=>{
