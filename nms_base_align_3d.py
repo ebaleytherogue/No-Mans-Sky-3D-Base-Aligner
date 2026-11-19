@@ -6,7 +6,7 @@ import math
 import sys
 from collections import Counter
 from pathlib import Path
-from nms_base_align import AlignmentError, FLAG, read_base, flag, owner_matches
+from nms_base_align import AlignmentError, FLAG, read_base, flag
 
 
 def dot(a, b):
@@ -48,8 +48,6 @@ def validate(before, after):
     for key in ('GalacticAddress', 'Position', 'Forward'):
         if before.get(key) != after.get(key):
             raise AlignmentError(f'Base identity field {key} changed between exports.')
-    if not owner_matches(before, after):
-        raise AlignmentError('Base identity field Owner changed between exports.')
     if flag(before) != flag(after):
         raise AlignmentError('The Base Computer changed. Leave it untouched during calibration.')
     if Counter(o['ObjectID'] for o in before['Objects'] if not is_wiring(o)) != Counter(o['ObjectID'] for o in after['Objects'] if not is_wiring(o)):

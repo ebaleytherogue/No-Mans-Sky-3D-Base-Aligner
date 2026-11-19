@@ -203,18 +203,10 @@ function validateBase(base){
  if(!base||!Array.isArray(base.Objects)||base.Objects.filter(o=>o.ObjectID===FLAG).length!==1)throw Error('Choose an NMSE base export with exactly one Base Computer.');
  base.Objects.forEach(o=>{if(typeof o.ObjectID!=='string'||geometry.some(k=>!Array.isArray(o[k])||o[k].length!==3||!o[k].every(Number.isFinite)))throw Error('Invalid object geometry in base file.')});
 }
-function ownerMatches(before,after){
- const left=before.Owner===undefined?{}:before.Owner,right=after.Owner===undefined?{}:after.Owner;
- if(![left,right].every(owner=>owner&&typeof owner==='object'&&!Array.isArray(owner)))return false;
- if(!['LID','UID','PTK'].every(k=>left[k]===right[k]))return false;
- const empty=name=>name===undefined||name===null||name==='';
- return left.USN===right.USN||empty(left.USN)||empty(right.USN);
-}
 function analyze(before,after){
  validateBase(before);if(!after)return {message:'Manual editing. Load Before and After exports to align using a corrected reference.',map:before.Objects.map((_,i)=>i),reference:null};
  validateBase(after);
  for(const k of ['GalacticAddress','Position','Forward'])if(stable(before[k])!==stable(after[k]))throw Error('Base identity changed: '+k);
- if(!ownerMatches(before,after))throw Error('Base identity changed: Owner');
  const flagA=before.Objects.find(o=>o.ObjectID===FLAG),flagB=after.Objects.find(o=>o.ObjectID===FLAG);
  if(!sameGeometry(flagA,flagB)||stable(nonGeometry(flagA))!==stable(nonGeometry(flagB)))throw Error('The Base Computer changed. Leave it untouched.');
  const ids=b=>b.Objects.filter(o=>!isWiring(o)).map(o=>o.ObjectID).sort();if(JSON.stringify(ids(before))!==JSON.stringify(ids(after)))throw Error('Parts were added or deleted. Move one existing part only.');
