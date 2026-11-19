@@ -7,6 +7,18 @@ function load(before=fixture(),after=null){const els={},ctx=new Proxy({},{get:()
  const s={document:{getElementById:el,createElement:()=>({click(){},append(){}})},window:{devicePixelRatio:1,addEventListener(){}},Blob,URL:{createObjectURL(b){blob=b;return 'test'},revokeObjectURL(){}},setTimeout(){},console};vm.createContext(s);vm.runInContext(template.replace('/*BASE_DATA*/null',JSON.stringify({before,after})),s);return {e:expr=>vm.runInContext(expr,s),els,getBlob:()=>blob};}
 const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(a)){assert.equal(a.length,b.length);a.forEach((v,i)=>near(v,b[i]))}else assert.ok(Math.abs(a-b)<1e-9,`${a} != ${b}`)};
 (async()=>{
+ for(const mode of ['different','missing','empty','null','missing_after']){
+  const before=fixture(),after=structuredClone(before);after.Objects[1].Position[0]+=5;
+  if(mode==='different')after.Owner={LID:'other',UID:'other',PTK:'other',USN:'other',TS:123,Extra:{keep:[1,2]}};
+  else if(mode==='missing'){delete before.Owner;delete after.Owner}
+  else if(mode==='missing_after')delete after.Owner;
+  else before.Owner=after.Owner=mode==='empty'?{}:null;
+  const snapshot=structuredClone({before,after}),editor=load(before,after);
+  editor.e("$('apply').onclick();$('download').onclick()");
+  const exported=JSON.parse(await editor.getBlob().text());
+  assert.equal(Object.hasOwn(exported,'Owner'),Object.hasOwn(after,'Owner'));
+  assert.deepEqual(exported.Owner,after.Owner);assert.deepEqual({before,after},snapshot);
+ }
  let b=fixture(),t=load(b);assert.equal(t.els.apply.disabled,true);assert.deepEqual(json(t.e('result()')),b);assert.match(t.els.status.textContent,/No meaningful/);
  t.e("$('rz').value=17;draw()");let edited=json(t.e('result()'));t.e('select(selected)');assert.deepEqual(json(t.e('result()')),edited);t.e('select(2)');near(t.e('result().Objects.map(o=>o.Position)'),edited.Objects.map(o=>o.Position));t.e("$('undo').onclick()");near(t.e('result().Objects.map(o=>o.Position)'),edited.Objects.map(o=>o.Position));
  t.e("$('download').onclick()");assert.deepEqual(JSON.parse(await t.getBlob().text()),json(t.e('result()')));

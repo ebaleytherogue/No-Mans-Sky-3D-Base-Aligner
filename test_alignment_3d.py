@@ -68,14 +68,35 @@ class AlignmentTests(unittest.TestCase):
         with self.assertRaises(a.AlignmentError): a.reference_pairs(b,c)
 
     def test_reject_identity_scale_and_degenerate(self):
-        for change in ('owner','scale','zero','parallel','removed'):
+        for change in ('address','scale','zero','parallel','removed'):
             b=fixture(); c=copy.deepcopy(b)
-            if change=='owner': c['Owner']['UID']='different'
+            if change=='address': c['GalacticAddress']='different'
             if change=='scale': c['Objects'][1]['Up']=[0,4,0]
             if change=='zero': c['Objects'][1]['Up']=[0,0,0]
             if change=='parallel': c['Objects'][1]['At']=[0,3,0]
             if change=='removed': c['Objects'].pop()
             with self.assertRaises(a.AlignmentError): a.reference_pairs(b,c,'1:1')
+
+    def test_owner_metadata_is_ignored_and_preserved(self):
+        for mode in ('different', 'missing', 'empty', 'null', 'missing_after'):
+            with self.subTest(mode=mode):
+                before, after, _ = self.corrected()
+                if mode == 'different':
+                    after['Owner'] = dict(LID='other', UID='other', PTK='other',
+                                          USN='other', TS=123, Extra={'keep': [1, 2]})
+                elif mode == 'missing':
+                    del before['Owner']
+                    del after['Owner']
+                elif mode == 'missing_after':
+                    del after['Owner']
+                else:
+                    before['Owner'] = after['Owner'] = {} if mode == 'empty' else None
+                originals = copy.deepcopy((before, after))
+                pairs = a.reference_pairs(before, after)
+                output = a.align(before, after, pairs[0])
+                self.assertEqual('Owner' in output, 'Owner' in after)
+                self.assertEqual(output.get('Owner'), after.get('Owner'))
+                self.assertEqual((before, after), originals)
 
     def test_manual_mode_and_selectors(self):
         b=fixture()
