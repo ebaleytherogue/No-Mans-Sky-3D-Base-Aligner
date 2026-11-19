@@ -13,6 +13,12 @@ Align and adjust No Man's Sky bases exported through Vector Commander's NMSE. Tr
 | Adjust a base manually in the browser | [Manual adjustment](NMS_Base_Aligner_Run_Guide.md#manual-browser-adjustment) | One export; optionally load an After export later |
 | Repair only an affected area | [Selective Alignment](NMS_Base_Aligner_Run_Guide.md#selective-alignment) | Either browser workflow; select pieces; supported connections follow automatically |
 
+## Models ZIP File
+If you want to use the 'shapes' option, download the models.zip file from https://github.com/ebaleytherogue/No-Mans-Sky-3D-Base-Aligner/releases/download/v1.0.0/NMS.Object.Models.zip . For information on how to use it, see 'How_to_activate_models.md' in the repo.
+
+## Windows Portable Version
+Visit the 'Releases' section (right frame of GitHub) and grab this version, as it is much easier to use, in that you do not need to work with .bat files or the command line.
+
 ## Browser features
 
 Whole-base alignment is the default; the Base Computer stays fixed. In single-file mode, enter movement and rotation values, then click **Apply Measured Movement** to commit the preview. A selection limits the move to those pieces. With no pieces selected, the move applies to the whole base. In two-file mode, the measured X/Y/Z translation and rotation options control the correction calculated from the two exports. The editor includes a selectable pivot, Undo, Redo, Reset, camera presets, and downloadable exports.
