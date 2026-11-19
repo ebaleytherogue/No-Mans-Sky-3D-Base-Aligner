@@ -3,26 +3,23 @@
 *.pyc
 Preview*.html
 preview*.html
-models.zip
-How_to_activate_models_ebaleytherogueLocalCopy.md
-BUILD-WINDOWS.md
 Preview_Wiring_Fix.html
-After.nmsbase
-Before.nmsbase
-<<<<<<< Updated upstream
+
+# Local documentation
+BUILD-WINDOWS.md
+How_to_activate_models_ebaleytherogueLocalCopy.md
+How_to_activate_models_DanLocalCopy.md
+
+# Optional 3D model assets
+models.zip
 /models/*
 !/models/README.md
 !/models/How_to_activate_models.md
-=======
-BUILD-WINDOWS.md
-/models/
->>>>>>> Stashed changes
+
+# Python caches
 __pycache__/
-# Local Windows build outputs
+
+# Local Windows build environment and outputs
 /.venv/
 /build/
 /dist/
-
-# Python temporary files
-*.pyc
-*.pyo
