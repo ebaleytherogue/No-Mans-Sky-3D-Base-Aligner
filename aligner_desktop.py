@@ -4,10 +4,10 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QIODevice, QUrl
+from PySide6.QtCore import QBuffer, QIODevice, QSettings, QUrl
 from PySide6.QtGui import QAction
 from PySide6.QtWebEngineCore import (
-    QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor,
+    QWebEngineDownloadRequest, QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor,
     QWebEngineUrlRequestJob, QWebEngineUrlScheme, QWebEngineUrlSchemeHandler,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -55,6 +55,7 @@ class AlignerWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("NMS 3D Base Aligner")
         self.resize(1200, 800)
+        self.settings = QSettings("NMS 3D Base Aligner", "Windows Portable")
         self.profile = QWebEngineProfile(QApplication.instance())
         self.requests = ViewerRequests(self.profile)
         self.profile.setUrlRequestInterceptor(self.requests)
@@ -79,8 +80,14 @@ class AlignerWindow(QMainWindow):
             menu.addAction(action)
         self.statusBar().showMessage("Use File to open one or two NMSE base exports.")
 
+    def remembered_folder(self, key):
+        folder = self.settings.value(key, "", type=str)
+        return folder if folder and Path(folder).is_dir() else ""
+
     def open_base(self, paired):
-        before, _ = QFileDialog.getOpenFileName(self, "Open Before base", "", BASE_FILTER)
+        before, _ = QFileDialog.getOpenFileName(
+            self, "Open Before base", self.remembered_folder("folders/open"), BASE_FILTER
+        )
         if not before:
             return
         after = None
@@ -95,6 +102,7 @@ class AlignerWindow(QMainWindow):
         except (AlignmentError, OSError, ValueError) as exc:
             QMessageBox.warning(self, "Cannot open base", str(exc))
             return
+        self.settings.setValue("folders/open", str(Path(before).parent))
         self.content.html = html.encode("utf-8")
         self.view.reload()
         self.statusBar().showMessage(Path(before).name)
@@ -106,15 +114,23 @@ class AlignerWindow(QMainWindow):
         if download.url().scheme() != "blob" or download.downloadFileName() != "Adjusted Base.nmsbase":
             download.cancel()
             return
+        folder = self.remembered_folder("folders/save") or self.remembered_folder("folders/open")
+        suggested_path = str(Path(folder) / "Adjusted Base.nmsbase")
         destination, _ = QFileDialog.getSaveFileName(
-            self, "Save adjusted base", "Adjusted Base.nmsbase", "NMSE base (*.nmsbase)"
+            self, "Save adjusted base", suggested_path, "NMSE base (*.nmsbase)"
         )
         if not destination:
             download.cancel()
             return
-        path = Path(destination)
-        download.setDownloadDirectory(str(path.absolute().parent))
+        path = Path(destination).absolute()
+        download.setDownloadDirectory(str(path.parent))
         download.setDownloadFileName(path.name)
+
+        def remember_completed_save(state):
+            if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
+                self.settings.setValue("folders/save", str(path.parent))
+
+        download.stateChanged.connect(remember_completed_save)
         download.accept()
 
 
