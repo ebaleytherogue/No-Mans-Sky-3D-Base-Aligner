@@ -113,7 +113,20 @@ const json=x=>JSON.parse(JSON.stringify(x));const near=(a,b)=>{if(Array.isArray(
  t.e("$('undo').onclick()");assert.deepEqual(json(t.e('result()')),b);
  t.e("$('redo').onclick()");assert.deepEqual(json(t.e('result()')),moved);
  t.e("changeMembers(new Set());$('tx').value=3;draw();$('apply').onclick()");
+ assert.equal(t.els.apply.disabled,true);
+ assert.equal(t.els.tx.disabled,true);
+ assert.deepEqual(json(t.e('result()')),moved);
+ t.e("$('moveWholeBase').onclick();$('apply').onclick()");
  near(t.e('result().Objects[4].Position'),[5,0,0]);
+ }
+
+ t=load(fixture());
+ t.e("window.location={protocol:'aligner:'};canvas.setPointerCapture=()=>{};canvas.getBoundingClientRect=()=>({left:0,top:0})");
+ for(const expected of ['pan','orbit']){
+  t.e('canvas.onpointerdown({button:0,pointerId:1,clientX:50,clientY:50,ctrlKey:true});canvas.onpointermove({clientX:70,clientY:55,ctrlKey:false})');
+  assert.equal(t.e('drag.mode'),expected);
+  t.e('canvas.onpointerup({clientX:70,clientY:55,ctrlKey:false})');
+  assert.equal(t.els.mode.value,expected);
  }
 
  // Optional G007 export stays outside the repository and is only read.

@@ -18,13 +18,15 @@
 <form method="dialog"><button autofocus>Cancel</button> <button id="moveAnyway" type="button">Move anyway</button></form>
 </dialog>
 <fieldset id="alignmentScope"><legend>Alignment scope</legend>
-<small id="scopeHint">With pieces selected, movement applies to those pieces. In single-file mode, an empty selection moves the whole base.</small>
+<small id="scopeHint">Enable Selective Alignment to limit movement to selected pieces.</small>
 <label><input id="selective" type="checkbox"> Enable Selective Alignment</label>
 <div id="selectionTools" hidden>
 <label>Selection shape <select id="shape"><option value="rectangle">Rectangle</option><option value="circle">Circle</option></select></label>
 <label>Selection action <select id="selectionAction"><option value="replace">Replace</option><option value="add">Add</option><option value="remove">Remove</option></select></label>
 <button id="clearSelection">Clear selection</button>
 <p id="selectionCount"></p><small>Use Select pieces drag action on original positions. Click to pick one piece. Shapes select through all depths; use Top, Front and Side to inspect. Camera changes preserve membership. The computer is always fixed.</small>
+<p id="selectionFeedback" role="status" hidden></p>
+<button id="moveWholeBase" type="button" hidden>Move whole base</button>
 <details><summary>Connection attachments</summary><p>Sockets are matched from the Before file. Endpoints follow their original objects. Existing free ends and unattached wire junctions stay fixed during selective alignment. Only ambiguous attachments require review.</p><div id="attachments"></div></details>
 </div></fieldset>
 <label>Drag action <select id="mode"><option value="select">Select pieces</option><option value="orbit" selected>Orbit camera</option><option value="pan">Pan camera</option><option value="rotate">Rotate base on selected axis</option><option value="move">Move base on selected axis</option><option value="ground">Move ground plane</option></select></label>
@@ -167,16 +169,25 @@ function buildConnections(){
  sel.value=bindings[j];sel.onchange=()=>{remember();bindings[j]=sel.value;draw()};label.append(sel);host.append(label)});
 }
 function selectiveMovement(){return scope&&(!!DATA.after||members.size>0)}
+function needsMovementScope(){return !DATA.after&&scope&&!members.size}
 function movable(i){return DATA.before.Objects[i].ObjectID!==FLAG&&(!selectiveMovement()||members.has(i))}
 function selectionInfo(){
 
  $('selectionTools').hidden=!scope;$('selectionCount').textContent=members.size+' selected pieces';
- $('apply').disabled=DATA.after?calibrationIndex===null||(scope&&!members.size):!values().every(Number.isFinite)||values().every(v=>v===0);
+ const blocked=needsMovementScope();
+ $('moveWholeBase').hidden=!blocked;
+ for(const id of fields)$(id).disabled=blocked;
+ $('apply').disabled=DATA.after?calibrationIndex===null||(scope&&!members.size):blocked||!values().every(Number.isFinite)||values().every(v=>v===0);
  $('apply').textContent=DATA.after?'Align rest of base to corrected reference':'Apply Measured Movement';
 }
 function rebuildScope(){const old=[...pivot],v=values();if(DATA.after)makeBaseline();const r=v.slice(0,3);setValues([...r,...add(v.slice(3),sub(sub(old,euler(old,r)),sub(pivot,euler(pivot,r))))])}
-function changeScope(){remember();scope=$('selective').checked;rebuildScope();draw()}
-function changeMembers(next){remember();members=next;rebuildScope();draw()}
+function showSelectionFeedback(message=''){
+ const feedback=$('selectionFeedback');
+ feedback.textContent=message;
+ feedback.hidden=!message;
+}
+function changeScope(){remember();scope=$('selective').checked;showSelectionFeedback();rebuildScope();draw()}
+function changeMembers(next){remember();members=next;showSelectionFeedback();rebuildScope();draw()}
 function transformPoint(p){let q=[...p];if(applied&&calibrationIndex!==null){const a=DATA.before.Objects[calibrationIndex],b=DATA.after.Objects[detection.map[calibrationIndex]];
  if(appliedOptions.rotate)q=add(mv(rotation(a,b),sub(q,a.Position)),a.Position);
  q=add(q,sub(b.Position,a.Position).map((v,k)=>appliedOptions.axes[k]?v:0))}
@@ -278,7 +289,7 @@ function initialize(after,initial=false){
  if(previous){baseline=rawBaseline();baseline.Objects.forEach((o,i)=>geometry.forEach(k=>o[k]=clone(previous.baseline.Objects[i][k])));pivot=[...baseline.Objects[pair()[0]].Position];const r=previous.values.slice(0,3),t=add(previous.values.slice(3),sub(sub(previous.pivot,euler(previous.pivot,r)),sub(pivot,euler(pivot,r))));setValues([...r,...t]);choose()}else makeBaseline();
 }
 function euler(v,r){let [x,y,z]=v;let [a,b,c]=r.map(d=>d*Math.PI/180);[y,z]=[y*Math.cos(a)-z*Math.sin(a),y*Math.sin(a)+z*Math.cos(a)];[x,z]=[x*Math.cos(b)+z*Math.sin(b),-x*Math.sin(b)+z*Math.cos(b)];return [x*Math.cos(c)-y*Math.sin(c),x*Math.sin(c)+y*Math.cos(c),z]}
-function result(){const v=values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);if(v.every(x=>x===0)){if(DATA.after&&scope)return connectOutput(output);connectionReport={internal:0,crossing:0,fixed:0,unresolved:0};return output;}output.Objects.forEach((o,i)=>{if(!movable(i)||(selectiveMovement()&&isWiring(o)))return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return selectiveMovement()?connectOutput(output):output}
+function result(){const v=needsMovementScope()?[0,0,0,0,0,0]:values();if(!v.every(Number.isFinite))throw Error('Enter finite numbers in every adjustment field.');const output=clone(baseline),r=v.slice(0,3),t=v.slice(3);if(v.every(x=>x===0)){if(DATA.after&&scope)return connectOutput(output);connectionReport={internal:0,crossing:0,fixed:0,unresolved:0};return output;}output.Objects.forEach((o,i)=>{if(!movable(i)||(selectiveMovement()&&isWiring(o)))return;o.Position=add(add(euler(sub(o.Position,pivot),r),pivot),t);o.Up=euler(o.Up,r);o.At=euler(o.At,r)});return selectiveMovement()?connectOutput(output):output}
 function project(p){let [x,y,z]=sub(p,camera.center);const c=Math.cos(camera.yaw),s=Math.sin(camera.yaw);[x,z]=[x*c-z*s,x*s+z*c];const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);[y,z]=[y*cp-z*sp,y*sp+z*cp];return [canvas.clientWidth/2+x*camera.zoom+camera.pan[0],canvas.clientHeight/2-y*camera.zoom+camera.pan[1],z]}
 function fit(){const all=DATA.before.Objects.filter(visiblePart).map(o=>o.Position);const lo=[0,1,2].map(k=>Math.min(...all.map(p=>p[k]))),hi=[0,1,2].map(k=>Math.max(...all.map(p=>p[k])));camera.center=add(lo,hi).map(v=>v/2);ground.center=[...camera.center];span=Math.max(2,Math.hypot(...sub(hi,lo)));camera.zoom=Math.min(canvas.clientWidth,canvas.clientHeight)*.7/span;camera.pan=[0,0];draw()}
 function line(a,b,color,width=1){a=project(a);b=project(b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a.slice(0,2));ctx.lineTo(...b.slice(0,2));ctx.stroke()}
@@ -469,6 +480,7 @@ $('afterFile').onchange=async()=>{try{const file=$('afterFile').files[0];if(!fil
 ['mx','my','mz','measuredRotation'].forEach(id=>$(id).onchange=draw);
 fields.forEach(id=>{$(id).oninput=()=>{remember({...snapshot(),values:[...lastValues]});draw()}});
 function restore(s){
+ showSelectionFeedback();
  scope=s.scope;members=new Set(s.members);bindings=s.bindings;$('selective').checked=scope;
  selected=s.selected;applied=s.applied;baseline=s.baseline;pivot=s.pivot;Object.assign(DATA,s.data);
  detection=s.detection;calibrationIndex=s.calibrationIndex;appliedOptions=s.appliedOptions;
@@ -497,7 +509,22 @@ $('reset').onclick=()=>{remember();applied=false;appliedOptions=null;setValues([
 if(DATA.models&&Object.keys(DATA.models).length)$('shapesMode').disabled=false;
 ['original','proposed','mode','axis','display'].forEach(id=>$(id).onchange=draw);
 $('fit').onclick=fit;['top','front','side'].forEach((id,i)=>$(id).onclick=()=>{camera.yaw=[0,0,Math.PI/2][i];camera.pitch=[Math.PI/2,0,0][i];draw()});
-canvas.oncontextmenu=e=>e.preventDefault();canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);const mode=e.button===2?'pan':$('mode').value;drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,mode,v:values(),localX:e.clientX-canvas.getBoundingClientRect().left,localY:e.clientY-canvas.getBoundingClientRect().top};if(mode==='rotate'||mode==='move')remember()};
+canvas.oncontextmenu=e=>e.preventDefault();
+canvas.onpointerdown=e=>{
+ let mode=e.button===2?'pan':$('mode').value;
+ if(window.location?.protocol==='aligner:'&&e.button===0&&e.ctrlKey&&(mode==='orbit'||mode==='pan')){
+  mode=mode==='orbit'?'pan':'orbit';
+  $('mode').value=mode;
+ }
+ const adjustsBase=mode==='rotate'||mode==='move';
+ if(adjustsBase&&needsMovementScope()){
+  showSelectionFeedback('Select pieces or choose Move whole base.');
+  return;
+ }
+ canvas.setPointerCapture(e.pointerId);
+ drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,mode,v:values(),localX:e.clientX-canvas.getBoundingClientRect().left,localY:e.clientY-canvas.getBoundingClientRect().top};
+ if(adjustsBase)remember();
+};
 canvas.onpointermove=e=>{
  if(!drag)return;
  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
@@ -527,7 +554,9 @@ canvas.onpointerup=e=>{if(!drag)return;if(drag.mode==='select'&&scope){
  const pts=DATA.before.Objects.map((o,i)=>({o,i,p:project(o.Position)})).filter(({o})=>o.ObjectID!==FLAG&&!isWiring(o)&&visiblePart(o));
  let hits=pts.filter(({p})=>$('shape').value==='circle'?Math.hypot(p[0]-x,p[1]-y)<=Math.hypot(dx,dy):p[0]>=Math.min(x,x+dx)&&p[0]<=Math.max(x,x+dx)&&p[1]>=Math.min(y,y+dy)&&p[1]<=Math.max(y,y+dy));
  if(click)hits=pts.map(p=>({...p,d:Math.hypot(p.p[0]-x,p.p[1]-y)})).filter(p=>p.d<10).sort((a,b)=>a.d-b.d).slice(0,1);
- const action=$('selectionAction').value,next=action==='replace'?new Set():new Set(members);hits.forEach(({i})=>action==='remove'?next.delete(i):next.add(i));drag=null;changeMembers(next);return;
+ const action=$('selectionAction').value,next=action==='replace'?new Set():new Set(members);hits.forEach(({i})=>action==='remove'?next.delete(i):next.add(i));drag=null;changeMembers(next);
+ if(!hits.length)showSelectionFeedback(click?'No selectable piece at that point.':'No selectable pieces in '+$('shape').value+'.');
+ return;
  }
  if(drag.mode==='orbit'&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){
   const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
@@ -566,6 +595,7 @@ $('partQuery').value='';
  }
  $('mode').value='orbit';
  $('selective').onchange=changeScope;$('clearSelection').onclick=()=>changeMembers(new Set());
+ $('moveWholeBase').onclick=()=>{$('selective').checked=false;changeScope()};
  $('showGround').checked=true;
  $('showLowerGround').checked=false;
  for(const id of ['showGround','showLowerGround'])$(id).onchange=draw;

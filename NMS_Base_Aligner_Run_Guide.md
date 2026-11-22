@@ -112,7 +112,7 @@ py nms_base_align.py 3d "Before.nmsbase" -o "Preview.html"
 
 Supplying the same export twice remains supported, but is unnecessary. Open Preview.html and choose a manual rotation pivot from the dropdown or click an eligible original point. Entries include object indices so repeated IDs can be distinguished. Electrical wires, short-range teleporter cables, supply pipes, and the Base Computer are excluded from pivot choices.
 
-In single-file mode, enter exact values under **Rotation about reference (degrees)** and **Movement in local game units**. The proposed layout updates as you edit. Click **Apply Measured Movement** to commit the preview and clear the adjustment fields for the next move. Use [Selective Alignment](#selective-alignment) to move specific pieces. With an empty selection, the movement applies to the whole base, with the Base Computer fixed.
+In single-file mode, enter exact values under **Rotation about reference (degrees)** and **Movement in local game units**. The proposed layout updates as you edit. Click **Apply Measured Movement** to commit the preview and clear the adjustment fields for the next move. Use [Selective Alignment](#selective-alignment) to move specific pieces.
 
 ### Browser controls and export
 
@@ -126,7 +126,7 @@ The corrected reference itself retains its exact After geometry when it is in th
 
 Inspect original gray and proposed blue points, the green reference, orange fixed computer, and orientation arrows. In selective mode, selected pieces are yellow and unselected pieces are subdued. The viewer shows positions, not part meshes.
 
-Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pan. Top, Front, Side, and Fit control the camera only. Select **Rotate base on selected axis** or **Move base on selected axis**, choose X/Y/Z, then drag. Colored axis handles indicate the selected local axis. Numeric fields allow exact values. Manual rotation uses fixed local X, then Y, then Z axes about the manual pivot, followed by translation. Changing the pivot preserves the proposed layout instead of clearing adjustments.
+Drag in **Orbit camera** mode to look around; scroll to zoom or right-drag to pan. In Windows Portable, start a left drag with Ctrl held to switch between **Orbit camera** and **Pan camera**. The dropdown keeps the mode you just used after you release Ctrl. Top, Front, Side, and Fit control the camera only. Select **Rotate base on selected axis** or **Move base on selected axis**, choose X/Y/Z, then drag. Colored axis handles indicate the selected local axis. Numeric fields allow exact values. Manual rotation uses fixed local X, then Y, then Z axes about the manual pivot, followed by translation. Changing the pivot preserves the proposed layout instead of clearing adjustments.
 
 **Undo** restores earlier edits, including applied movements, scope, selection, and connection assignments. **Redo** reapplies an undone edit. **Reset to original** removes measured and manual corrections and keeps the current selection. In single-file mode, Reset recalculates attachments from the original geometry. In two-file mode, Reset retains the connection assignments and latest After metadata.
 
@@ -154,7 +154,7 @@ Leave **Enable Selective Alignment** unchecked to move the whole construction us
 5. Enter manual adjustments, then click **Apply Measured Movement** in single-file mode. In two-file mode, use **Align rest of base to corrected reference** to apply the correction from the two exports. Only selected construction pieces move. A manual pivot may be outside the selection.
 6. Inspect the connection summary and preview, review any ambiguous attachments as described below, then download. Supported socket attachments are automatic; existing free ends do not require a choice.
 
-With selective mode enabled and no pieces selected, single-file mode uses whole-base scope. Two-file mode requires a selection before selective alignment or export. Unchecking **Enable Selective Alignment** restores whole-base scope and retains the selection for later use. Changing the scope or selection recalculates the pending preview. Previously applied single-file moves stay in place.
+With selective mode enabled in single-file mode, select pieces to adjust or choose **Move whole base** to exit selective mode. A rectangle or circle that misses all selectable pieces reports the miss. Two-file mode requires a selection before selective alignment or export. Unchecking **Enable Selective Alignment** restores whole-base scope and retains the selection for later use. Changing the scope or selection recalculates the pending preview. Previously applied single-file moves stay in place.
 
 ### Electrical wires, teleporter cables, and supply pipes
 
