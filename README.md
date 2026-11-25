@@ -4,6 +4,10 @@ See walkthrough video at https://youtu.be/1q_TYTSEzFk
 
 Align and adjust No Man's Sky bases exported through Vector Commander's NMSE. Transfer construction between bases, repair a shifted or tilted base, or adjust placement manually in an offline browser editor.
 
+## Importing, Shelving, and Replicating Your Bases
+
+If you wish to manipulate bases, import and export your and other travelers' bases, in your gamesave file, use my [No-Mans-Sky-Base-Replicator](https://github.com/ebaleytherogue/No-Mans-Sky-Base-Replicator) project.
+
 ## Choose a workflow
 
 | Goal | Workflow | Inputs |
